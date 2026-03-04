@@ -67,6 +67,10 @@ inputs:
     description: 'Comma-separated autofix commands to run when autofix is enabled (e.g. "lint --fix,test --fix")'
     required: false
     default: ''
+  autofix-label:
+    description: 'Optional PR label required to allow autofix (e.g. "autofix")'
+    required: false
+    default: ''
 
 outputs:
   results:
@@ -449,8 +453,42 @@ runs:
         COMPONENT_NAME: ${{ inputs.component }}
         EXTRA_ARGS: ${{ inputs.args }}
         AUTOFIX_COMMANDS: ${{ inputs.autofix-commands }}
+        AUTOFIX_LABEL: ${{ inputs.autofix-label }}
+        PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
       run: |
         set -euo pipefail
+
+        # Safety guard: only auto-push on same-repo PRs (not forks)
+        if [ "${PR_HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]; then
+          echo "Skipping autofix: PR head repo (${PR_HEAD_REPO}) differs from target repo (${GITHUB_REPOSITORY})"
+          echo "committed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Loop guard: don't autofix if workflow was triggered by a prior bot autofix push
+        if [ "${GITHUB_ACTOR:-}" = "github-actions[bot]" ]; then
+          echo "Skipping autofix: workflow actor is github-actions[bot]"
+          echo "committed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Loop guard: don't chain autofix commits on top of autofix commits
+        LAST_SUBJECT=$(git log -1 --pretty=%s 2>/dev/null || true)
+        if [ "$LAST_SUBJECT" = "chore(ci): apply homeboy autofixes" ]; then
+          echo "Skipping autofix: HEAD already an autofix commit"
+          echo "committed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Optional label gate
+        if [ -n "${AUTOFIX_LABEL:-}" ]; then
+          if ! echo "$PR_LABELS_JSON" | jq -e --arg label "$AUTOFIX_LABEL" 'index($label) != null' > /dev/null; then
+            echo "Skipping autofix: required label '${AUTOFIX_LABEL}' not present"
+            echo "committed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+        fi
 
         if [ -n "$COMPONENT_NAME" ]; then
           COMP_ID="$COMPONENT_NAME"

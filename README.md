@@ -69,6 +69,7 @@ If your repo has a `homeboy.json` file, you don't even need to specify the exten
 | `node-version` | No | | Node.js version (sets up via `actions/setup-node`) |
 | `autofix` | No | `false` | On PR failures, run safe autofixes, commit, push, and re-run checks |
 | `autofix-commands` | No | | Override autofix commands (comma-separated, e.g. `lint --fix,test --fix`) |
+| `autofix-label` | No | | Optional PR label required before autofix runs (e.g. `autofix`) |
 
 ## Outputs
 
@@ -119,6 +120,20 @@ When enabled, the action will:
 5. Re-run checks and report final status
 
 > Autofix mode is PR-only and never force-pushes or amends commits.
+
+Optional label gate:
+
+```yaml
+- uses: Extra-Chill/homeboy-action@v1
+  with:
+    extension: wordpress
+    commands: lint,test
+    php-version: '8.2'
+    autofix: 'true'
+    autofix-label: 'autofix'
+```
+
+With `autofix-label`, no bot commit will be created unless that label is present on the PR.
 
 ### Test with Custom Settings
 
