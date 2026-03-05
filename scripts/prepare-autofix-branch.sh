@@ -11,36 +11,21 @@ fi
 
 AUTOFIX_COMMIT_COUNT=$(git log --oneline --grep '^chore(ci): apply homeboy autofixes$' | wc -l | xargs)
 if [ "${AUTOFIX_COMMIT_COUNT}" -ge "${AUTOFIX_MAX_COMMITS}" ]; then
-  echo "Skipping autofix: reached max autofix commits (${AUTOFIX_COMMIT_COUNT}/${AUTOFIX_MAX_COMMITS})"
-  echo "committed=false" >> "${GITHUB_OUTPUT}"
-  exit 0
-fi
-
-if [ "${PR_HEAD_REPO}" != "${GITHUB_REPOSITORY}" ]; then
-  echo "Skipping autofix: PR head repo (${PR_HEAD_REPO}) differs from target repo (${GITHUB_REPOSITORY})"
+  echo "Skipping non-PR autofix: reached max autofix commits (${AUTOFIX_COMMIT_COUNT}/${AUTOFIX_MAX_COMMITS})"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
 fi
 
 if [ "${GITHUB_ACTOR:-}" = "github-actions[bot]" ]; then
-  echo "Skipping autofix: workflow actor is github-actions[bot]"
+  echo "Skipping non-PR autofix: workflow actor is github-actions[bot]"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
 fi
 
-LAST_SUBJECT=$(git log -1 --pretty=%s 2>/dev/null || true)
-if [ "${LAST_SUBJECT}" = "chore(ci): apply homeboy autofixes" ]; then
-  echo "Skipping autofix: HEAD already an autofix commit"
+if [[ "${GITHUB_REF_NAME:-}" == ci/autofix/* ]]; then
+  echo "Skipping non-PR autofix: already on an autofix branch (${GITHUB_REF_NAME})"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
-fi
-
-if [ -n "${AUTOFIX_LABEL:-}" ]; then
-  if ! echo "${PR_LABELS_JSON}" | jq -e --arg label "${AUTOFIX_LABEL}" 'index($label) != null' > /dev/null; then
-    echo "Skipping autofix: required label '${AUTOFIX_LABEL}' not present"
-    echo "committed=false" >> "${GITHUB_OUTPUT}"
-    exit 0
-  fi
 fi
 
 COMP_ID="$(resolve_component_id)"
@@ -56,23 +41,29 @@ else
     case "${CMD}" in
       lint) FIX_ARRAY+=("lint --fix") ;;
       test) FIX_ARRAY+=("test --fix") ;;
+      audit) FIX_ARRAY+=("audit --fix --write") ;;
     esac
   done
 fi
 
 if [ ${#FIX_ARRAY[@]} -eq 0 ]; then
-  echo "No autofix commands configured for this command set"
+  echo "No non-PR autofix commands configured for this command set"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
 fi
 
-echo "Applying autofixes..."
+AUTOFIX_BRANCH="ci/autofix/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+echo "Creating autofix branch: ${AUTOFIX_BRANCH}"
+git checkout -b "${AUTOFIX_BRANCH}"
+
+echo "Applying non-PR autofixes..."
 for FIX_CMD in "${FIX_ARRAY[@]}"; do
   FIX_CMD=$(echo "${FIX_CMD}" | xargs)
   BASE_CMD="homeboy ${FIX_CMD} ${COMP_ID} --path ${WORKSPACE}"
 
-  if echo "${FIX_CMD}" | grep -q '^lint' && [ -n "${HOMEBOY_CHANGED_SINCE:-}" ]; then
-    BASE_CMD="homeboy ${FIX_CMD} ${COMP_ID} --path ${WORKSPACE} --changed-since ${HOMEBOY_CHANGED_SINCE}"
+  if [ "${FIX_CMD}" = "audit --fix --write" ] && [ -n "${HOMEBOY_CHANGED_SINCE:-}" ]; then
+    BASE_CMD="homeboy audit ${COMP_ID} --path ${WORKSPACE} --fix --write --changed-since ${HOMEBOY_CHANGED_SINCE}"
   fi
 
   if [ -n "${EXTRA_ARGS:-}" ]; then
@@ -86,19 +77,23 @@ for FIX_CMD in "${FIX_ARRAY[@]}"; do
   set -e
 
   if [ "${FIX_EXIT}" -ne 0 ]; then
-    echo "Autofix command exited non-zero (${FIX_EXIT}), continuing to check for file changes"
+    echo "Autofix command exited non-zero (${FIX_EXIT}), continuing to inspect generated changes"
   fi
 done
 
 if git diff --quiet && git diff --cached --quiet; then
-  echo "No autofix changes detected"
+  echo "No non-PR autofix changes detected"
+  git checkout -
+  git branch -D "${AUTOFIX_BRANCH}"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
 fi
 
 git add -A
 if git diff --cached --quiet; then
-  echo "No staged changes after autofix"
+  echo "No staged changes after non-PR autofix"
+  git checkout -
+  git branch -D "${AUTOFIX_BRANCH}"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
   exit 0
 fi
@@ -106,6 +101,7 @@ fi
 git config user.name "github-actions[bot]"
 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git commit -m "chore(ci): apply homeboy autofixes"
-git push origin "HEAD:${GITHUB_HEAD_REF}"
+git push origin "${AUTOFIX_BRANCH}"
 
 echo "committed=true" >> "${GITHUB_OUTPUT}"
+echo "autofix-branch=${AUTOFIX_BRANCH}" >> "${GITHUB_OUTPUT}"
