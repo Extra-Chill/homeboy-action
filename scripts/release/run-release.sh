@@ -138,7 +138,7 @@ echo "  Releasing ${COMP_ID} with ${BUMP_TYPE} bump"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-RELEASE_CMD="homeboy release ${COMP_ID} ${BUMP_TYPE} --skip-checks"
+RELEASE_CMD="homeboy release ${COMP_ID} ${BUMP_TYPE} --skip-checks --path ${WORKSPACE}"
 
 if [ "${DRY_RUN}" = "true" ]; then
   RELEASE_CMD="${RELEASE_CMD} --dry-run"
