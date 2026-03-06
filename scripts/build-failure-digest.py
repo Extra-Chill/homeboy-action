@@ -220,7 +220,7 @@ def extract_audit_digest(log_text: str) -> dict[str, Any]:
         "outliers_found": summary.get("outliers_found") if isinstance(summary, dict) else None,
         "parsed_outlier_items": len(outlier_items),
         "severity_counts": severity_counts,
-        "top_findings": top_findings[:10],
+        "top_findings": top_findings[:500],
     }
 
 
@@ -232,12 +232,8 @@ def parse_bool(value: str | None) -> bool:
 
 def derive_fixable_commands(
     commands_csv: str,
-    autofix_enabled: bool,
     autofix_commands_csv: str,
 ) -> set[str]:
-    if not autofix_enabled:
-        return set()
-
     if autofix_commands_csv.strip():
         out: set[str] = set()
         for raw in autofix_commands_csv.split(","):
@@ -264,16 +260,21 @@ def classify_autofixability(
     failed_commands = sorted(
         [str(cmd) for cmd, status in results.items() if isinstance(cmd, str) and status == "fail"]
     )
-    fixable_candidates = derive_fixable_commands(
-        commands_csv, autofix_enabled, autofix_commands_csv
-    )
+    potential_fixable_candidates = derive_fixable_commands(commands_csv, autofix_commands_csv)
+    enabled_fixable_candidates = potential_fixable_candidates if autofix_enabled else set()
 
     auto_fixable_failed: list[str] = []
     human_needed_failed: list[str] = []
+    potential_auto_fixable_failed: list[str] = []
 
     for cmd in failed_commands:
         normalized = cmd.strip().lower()
-        if normalized in fixable_candidates and not autofix_attempted:
+        if normalized in potential_fixable_candidates:
+            potential_auto_fixable_failed.append(cmd)
+
+    for cmd in failed_commands:
+        normalized = cmd.strip().lower()
+        if normalized in enabled_fixable_candidates and not autofix_attempted:
             auto_fixable_failed.append(cmd)
         else:
             human_needed_failed.append(cmd)
@@ -290,9 +291,11 @@ def classify_autofixability(
     return {
         "autofix_enabled": autofix_enabled,
         "autofix_attempted": autofix_attempted,
-        "fixable_candidates": sorted(fixable_candidates),
+        "fixable_candidates": sorted(enabled_fixable_candidates),
+        "potential_fixable_candidates": sorted(potential_fixable_candidates),
         "failed_commands": failed_commands,
         "auto_fixable_failed_commands": auto_fixable_failed,
+        "potential_auto_fixable_failed_commands": potential_auto_fixable_failed,
         "human_needed_failed_commands": human_needed_failed,
         "overall": overall,
     }
@@ -306,6 +309,14 @@ def render_markdown(
     tooling: dict[str, str],
     job_links: dict[str, str],
 ) -> str:
+    max_full_findings = 300
+
+    def format_finding_line(idx: int, finding: dict[str, str]) -> str:
+        return (
+            f"  {idx}. **{finding.get('file','unknown')}** — "
+            f"{finding.get('rule','unknown')} — {finding.get('message','')}"
+        )
+
     lines: list[str] = []
     lines.append("## Failure Digest")
     lines.append("")
@@ -364,11 +375,26 @@ def render_markdown(
     if top_findings:
         lines.append("- Top actionable findings:")
         for idx, finding in enumerate(top_findings[:5], start=1):
-            line = (
-                f"  {idx}. **{finding.get('file','unknown')}** — "
-                f"{finding.get('rule','unknown')} — {finding.get('message','')}"
+            lines.append(format_finding_line(idx, finding))
+
+        lines.append("")
+        lines.append(
+            f"<details><summary>All parsed audit findings ({len(top_findings)})</summary>"
+        )
+        lines.append("")
+        full_findings = top_findings
+        if len(full_findings) > max_full_findings:
+            full_findings = full_findings[:max_full_findings]
+        for idx, finding in enumerate(full_findings, start=1):
+            lines.append(format_finding_line(idx, finding).strip())
+        if len(top_findings) > max_full_findings:
+            lines.append("")
+            lines.append(
+                f"_Truncated to {max_full_findings} findings to avoid oversized PR comments "
+                f"({len(top_findings)} total parsed)._"
             )
-            lines.append(line)
+        lines.append("")
+        lines.append("</details>")
     else:
         lines.append("- No structured audit findings parsed from audit log.")
     audit_job_url = job_links.get("Homeboy Audit", run_url)
@@ -385,6 +411,9 @@ def render_markdown(
     )
 
     fixable = autofixability.get("auto_fixable_failed_commands", []) or []
+    potential_fixable_failed = (
+        autofixability.get("potential_auto_fixable_failed_commands", []) or []
+    )
     human = autofixability.get("human_needed_failed_commands", []) or []
     if fixable:
         lines.append("- Auto-fixable failed commands:")
@@ -396,6 +425,23 @@ def render_markdown(
             lines.append(f"  - `{cmd}`")
     if not fixable and not human:
         lines.append("- No failed commands to classify.")
+
+    if potential_fixable_failed:
+        lines.append("- Potentially auto-fixable failed commands (if autofix enabled):")
+        for cmd in potential_fixable_failed:
+            lines.append(f"  - `{cmd}`")
+
+    if not autofixability.get("autofix_enabled"):
+        potential_candidates = autofixability.get("potential_fixable_candidates", []) or []
+        if potential_candidates:
+            lines.append(
+                "- Autofix is currently **disabled**. Commands with autofix support in this run: "
+                + ", ".join(f"`{cmd}`" for cmd in potential_candidates)
+            )
+        else:
+            lines.append(
+                "- Autofix is currently **disabled** and no autofix-capable commands were detected."
+            )
     lines.append("")
 
     lines.append("### Machine-readable artifacts")
