@@ -14,7 +14,6 @@ fi
 # any human merge. The old approach (count all autofix commits since last tag)
 # permanently tripped the guard after N total historical autofix commits across
 # all PRs, blocking all future autofix even after human intervention.
-# Count consecutive autofix commits at HEAD. A human commit resets the counter.
 # When the cap is hit, code fixes are skipped but baseline updates still run —
 # baseline updates use a distinct commit prefix and don't count toward the cap.
 AUTOFIX_COMMIT_COUNT=0
@@ -82,12 +81,16 @@ AUTOFIX_BRANCH="ci/autofix/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 echo "Creating autofix branch: ${AUTOFIX_BRANCH}"
 git checkout -b "${AUTOFIX_BRANCH}"
 
+AUTOFIX_OUTPUT_DIR=$(mktemp -d)
+
 # Run code fixes only when under the cap
 if [ "${AUTOFIX_CAP_HIT}" = false ]; then
   echo "Applying non-PR autofixes..."
+  FIX_INDEX=0
   for FIX_CMD in "${FIX_ARRAY[@]}"; do
     FIX_CMD=$(echo "${FIX_CMD}" | xargs)
-    BASE_CMD="$(build_autofix_command "${FIX_CMD}" "${COMP_ID}" "${WORKSPACE}")"
+    OUTPUT_FILE="${AUTOFIX_OUTPUT_DIR}/fix-${FIX_INDEX}.json"
+    BASE_CMD="$(build_autofix_command "${FIX_CMD}" "${COMP_ID}" "${WORKSPACE}" "${OUTPUT_FILE}")"
 
     echo "Running autofix: ${BASE_CMD}"
     set +e
@@ -98,6 +101,7 @@ if [ "${AUTOFIX_CAP_HIT}" = false ]; then
     if [ "${FIX_EXIT}" -ne 0 ]; then
       echo "Autofix command exited non-zero (${FIX_EXIT}), continuing to inspect generated changes"
     fi
+    FIX_INDEX=$((FIX_INDEX + 1))
   done
 else
   echo "Skipping code fixes (autofix cap reached)"
@@ -134,11 +138,11 @@ if git diff --cached --quiet; then
   exit 0
 fi
 
-# Capture autofix summary: file count and which fix commands ran
+# Capture autofix summary: file count, fix commands, and finding categories
 AUTOFIX_FILE_COUNT=$(git diff --cached --name-only | wc -l | xargs)
 AUTOFIX_CHANGED_FILES="$(git diff --cached --name-only | sort)"
 
-# Detect baseline-only changes: only homeboy.json modified
+# Detect baseline-only changes: only homeboy.json modified while cap was hit
 BASELINE_ONLY=false
 if [ "${AUTOFIX_CAP_HIT}" = true ]; then
   if echo "${AUTOFIX_CHANGED_FILES}" | grep -qx "homeboy.json" && [ "${AUTOFIX_FILE_COUNT}" -eq 1 ]; then
@@ -163,8 +167,24 @@ else
     AUTOFIX_FIX_TYPES+="${BASE}"
   done
 
-  COMMIT_MSG="$(build_autofix_commit_message "${AUTOFIX_FIX_TYPES}" "${AUTOFIX_FILE_COUNT}")"
+  # Extract finding categories from autofix JSON output.
+  # Looks for fix_summary.rules[].rule or data.findings[].kind in the output files.
+  AUTOFIX_FINDING_TYPES=""
+  if [ -d "${AUTOFIX_OUTPUT_DIR}" ]; then
+    AUTOFIX_FINDING_TYPES="$(jq -r '
+      [
+        .. | .fix_summary? // empty | .rules? // empty | .[]? | .rule? // empty
+      ]
+      | map(select(type == "string" and length > 0))
+      | unique
+      | sort
+      | join(", ")
+    ' "${AUTOFIX_OUTPUT_DIR}"/*.json 2>/dev/null | tail -n 1)"
+  fi
+
+  COMMIT_MSG="$(build_autofix_commit_message "${AUTOFIX_FIX_TYPES}" "${AUTOFIX_FILE_COUNT}" "${AUTOFIX_FINDING_TYPES}")"
 fi
+rm -rf "${AUTOFIX_OUTPUT_DIR}"
 
 BOT_NAME="homeboy-ci[bot]"
 BOT_EMAIL="266378653+homeboy-ci[bot]@users.noreply.github.com"
@@ -191,4 +211,5 @@ fi
 echo "committed=true" >> "${GITHUB_OUTPUT}"
 echo "autofix-branch=${AUTOFIX_BRANCH}" >> "${GITHUB_OUTPUT}"
 echo "autofix-file-count=${AUTOFIX_FILE_COUNT}" >> "${GITHUB_OUTPUT}"
-echo "autofix-fix-types=${AUTOFIX_FIX_TYPES}" >> "${GITHUB_OUTPUT}"
+echo "autofix-fix-types=${AUTOFIX_FIX_TYPES:-}" >> "${GITHUB_OUTPUT}"
+echo "autofix-finding-types=${AUTOFIX_FINDING_TYPES:-}" >> "${GITHUB_OUTPUT}"
