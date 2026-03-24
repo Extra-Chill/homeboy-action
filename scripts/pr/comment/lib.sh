@@ -76,6 +76,15 @@ summary_json_for_command() {
     audit)
       printf '%s\n' "${OUTPUT_DIR}/homeboy-audit-summary.json"
       ;;
+    refactor*)
+      local stem
+      stem="$(printf '%s' "${command}" | sed -E 's/[^[:alnum:]._-]+/-/g; s/^-+//; s/-+$//')"
+      if [ -n "${OUTPUT_DIR}" ] && [ -f "${OUTPUT_DIR}/${stem}.json" ]; then
+        printf '%s\n' "${OUTPUT_DIR}/${stem}.json"
+      else
+        printf '\n'
+      fi
+      ;;
     *)
       printf '\n'
       ;;

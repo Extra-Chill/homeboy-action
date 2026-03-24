@@ -76,7 +76,55 @@ def compact_summary(command: str, data: dict[str, Any]) -> str:
             return f"alignment score {alignment:.3f}"
         return "structured audit details available"
 
+    if command == "refactor":
+        return compact_refactor_summary(data)
+
     return "structured command details available"
+
+
+def compact_refactor_summary(data: dict[str, Any]) -> str:
+    """Extract a compact summary from refactor plan JSON output."""
+    # The refactor --output JSON wraps everything in a CliResponse envelope
+    inner = data.get("data", data)
+    if not isinstance(inner, dict):
+        return "structured refactor details available"
+
+    # Check for error envelope first
+    error = data.get("error", {})
+    if isinstance(error, dict) and error.get("message"):
+        code = error.get("code", "")
+        msg = str(error["message"])
+        return f"error: {code} — {msg}" if code else f"error: {msg}"
+
+    files_modified = int(inner.get("files_modified", 0) or 0)
+    stages = inner.get("stages", [])
+    warnings = inner.get("warnings", [])
+    totals = inner.get("plan_totals", {})
+    total_fixes = int(totals.get("total_fixes_proposed", 0) or 0) if isinstance(totals, dict) else 0
+
+    # Build per-stage summary
+    stage_parts: list[str] = []
+    for stage in (stages if isinstance(stages, list) else []):
+        if not isinstance(stage, dict):
+            continue
+        name = str(stage.get("stage", "unknown"))
+        proposed = int(stage.get("fixes_proposed", 0) or 0)
+        if proposed > 0:
+            stage_parts.append(f"{name}: {proposed}")
+
+    if stage_parts:
+        breakdown = ", ".join(stage_parts)
+        return f"{total_fixes} fix(es) across {files_modified} file(s) — {breakdown}"
+
+    if files_modified > 0:
+        return f"{total_fixes} fix(es) across {files_modified} file(s)"
+
+    # No fixes — check for validation warnings
+    validation_warnings = [str(w) for w in warnings if isinstance(w, str) and "validation" in w.lower()]
+    if validation_warnings:
+        return validation_warnings[0]
+
+    return "no automated fixes found"
 
 
 def markdown_summary(command: str, data: dict[str, Any]) -> str:
@@ -157,7 +205,60 @@ def markdown_summary(command: str, data: dict[str, Any]) -> str:
                 detail_lines.append(detail)
             append_details(lines, f"Audit findings ({min(len(top_findings), 10)} shown)", detail_lines)
 
+    elif command == "refactor":
+        lines.extend(markdown_refactor_summary(data))
+
     return "\n".join(lines)
+
+
+def markdown_refactor_summary(data: dict[str, Any]) -> list[str]:
+    """Render refactor plan details as markdown lines."""
+    result: list[str] = []
+    inner = data.get("data", data)
+    if not isinstance(inner, dict):
+        return result
+
+    error = data.get("error", {})
+    if isinstance(error, dict) and error.get("message"):
+        result.append(f"- Error: **{error.get('code', 'unknown')}** — {error['message']}")
+        hints = error.get("hints", [])
+        for hint in (hints if isinstance(hints, list) else [])[:3]:
+            result.append(f"  - Hint: {hint}")
+        return result
+
+    files_modified = int(inner.get("files_modified", 0) or 0)
+    totals = inner.get("plan_totals", {})
+    total_fixes = int(totals.get("total_fixes_proposed", 0) or 0) if isinstance(totals, dict) else 0
+    result.append(f"- Total fixes proposed: **{total_fixes}**")
+    result.append(f"- Files modified: **{files_modified}**")
+
+    stages = inner.get("stages", [])
+    if isinstance(stages, list) and stages:
+        result.append("- Stages:")
+        for stage in stages:
+            if not isinstance(stage, dict):
+                continue
+            name = str(stage.get("stage", "unknown"))
+            proposed = int(stage.get("fixes_proposed", 0) or 0)
+            stage_files = int(stage.get("files_modified", 0) or 0)
+            detected = stage.get("detected_findings")
+            detected_str = f", {detected} findings detected" if detected is not None else ""
+            result.append(f"  - **{name}**: {proposed} fix(es), {stage_files} file(s){detected_str}")
+
+    changed_files = inner.get("changed_files", [])
+    if isinstance(changed_files, list) and changed_files:
+        detail_lines = [f"{idx}. `{f}`" for idx, f in enumerate(changed_files[:15], start=1)]
+        if len(changed_files) > 15:
+            detail_lines.append(f"... and {len(changed_files) - 15} more")
+        append_details(result, f"Changed files ({len(changed_files)})", detail_lines)
+
+    warnings = inner.get("warnings", [])
+    if isinstance(warnings, list):
+        notable = [str(w) for w in warnings if isinstance(w, str) and "merge order" not in w.lower()]
+        if notable:
+            append_details(result, f"Warnings ({len(notable)})", notable[:10])
+
+    return result
 
 
 def main() -> int:
@@ -165,7 +266,9 @@ def main() -> int:
         print(f"Usage: {sys.argv[0]} <command> <json-file> [compact|markdown]", file=sys.stderr)
         return 1
 
-    command = sys.argv[1].strip().lower()
+    raw_command = sys.argv[1].strip().lower()
+    # Normalize compound commands like "refactor --from all" to base command
+    command = raw_command.split()[0] if raw_command else raw_command
     path = sys.argv[2]
     mode = sys.argv[3].strip().lower() if len(sys.argv) == 4 else "markdown"
 

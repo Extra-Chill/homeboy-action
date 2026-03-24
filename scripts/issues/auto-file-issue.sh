@@ -19,6 +19,17 @@ summary_json_for() {
     audit)
       printf '%s\n' "${OUTPUT_DIR}/homeboy-audit-summary.json"
       ;;
+    refactor*)
+      # Refactor commands don't have a dedicated summary file — use the
+      # structured --output JSON written by run-homeboy-commands.sh.
+      local stem
+      stem="$(printf '%s' "$1" | sed -E 's/[^[:alnum:]._-]+/-/g; s/^-+//; s/-+$//')"
+      if [ -n "${OUTPUT_DIR}" ] && [ -f "${OUTPUT_DIR}/${stem}.json" ]; then
+        printf '%s\n' "${OUTPUT_DIR}/${stem}.json"
+      else
+        printf '%s\n' ""
+      fi
+      ;;
     *)
       printf '%s\n' ""
       ;;
