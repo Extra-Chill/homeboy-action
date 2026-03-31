@@ -35,6 +35,126 @@ has_reverted_autofix() {
   fi
 }
 
+# Label used to persistently disable autofix on a PR.
+# Applied when a revert or force push removes a bot commit. Survives
+# force pushes (unlike git history checks) and is the single source of
+# truth for "should autofix run on this PR?"
+AUTOFIX_DISABLED_LABEL="autofix-disabled"
+
+# Check whether autofix has been permanently disabled on this PR via label.
+# Returns 0 if the label is present (autofix disabled), 1 otherwise.
+# Requires: GITHUB_REPOSITORY and PR_NUMBER in the environment.
+has_autofix_disabled_label() {
+  local pr_number="${1:-${PR_NUMBER:-}}"
+  local repo="${GITHUB_REPOSITORY:-}"
+
+  if [ -z "${pr_number}" ] || [ -z "${repo}" ]; then
+    return 1
+  fi
+
+  local labels=""
+  if command -v gh >/dev/null 2>&1; then
+    labels=$(gh pr view "${pr_number}" --repo "${repo}" --json labels -q '.labels[].name' 2>/dev/null || true)
+  fi
+
+  if [ -z "${labels}" ]; then
+    local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+    if [ -n "${token}" ]; then
+      labels=$(curl -sfL \
+        -H "Authorization: Bearer ${token}" \
+        -H "Accept: application/vnd.github+json" \
+        "https://api.github.com/repos/${repo}/issues/${pr_number}/labels" 2>/dev/null \
+        | jq -r '.[].name // empty' 2>/dev/null || true)
+    fi
+  fi
+
+  echo "${labels}" | grep -qxF "${AUTOFIX_DISABLED_LABEL}"
+}
+
+# Permanently disable autofix on a PR by adding the disabled label.
+# Creates the label if it doesn't exist yet (idempotent).
+# Requires: GITHUB_REPOSITORY and GH_TOKEN/GITHUB_TOKEN in the environment.
+disable_autofix_on_pr() {
+  local pr_number="${1:-${PR_NUMBER:-}}"
+  local repo="${GITHUB_REPOSITORY:-}"
+
+  if [ -z "${pr_number}" ] || [ -z "${repo}" ]; then
+    echo "Cannot disable autofix: missing PR number or repository"
+    return 1
+  fi
+
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [ -z "${token}" ]; then
+    echo "Cannot disable autofix: no GitHub token available"
+    return 1
+  fi
+
+  # Create the label if it doesn't exist (409 = already exists, that's fine)
+  curl -sfL -o /dev/null -w '' \
+    -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${repo}/labels" \
+    -d "{\"name\":\"${AUTOFIX_DISABLED_LABEL}\",\"color\":\"e4e669\",\"description\":\"Autofix permanently disabled on this PR (bot commit was reverted or force-pushed away)\"}" \
+    2>/dev/null || true
+
+  # Add the label to the PR
+  curl -sfL -o /dev/null -w '' \
+    -X POST \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${repo}/issues/${pr_number}/labels" \
+    -d "{\"labels\":[\"${AUTOFIX_DISABLED_LABEL}\"]}" \
+    2>/dev/null || true
+
+  echo "Added '${AUTOFIX_DISABLED_LABEL}' label to PR #${pr_number} — autofix permanently disabled"
+}
+
+# Check whether prior bot commits were force-pushed away from this PR branch.
+# Compares the bot commits GitHub knows about (from PR commit list) against
+# what's currently in git history. If GitHub shows bot commits that are no
+# longer in the branch, a force push removed them.
+#
+# Arguments:
+#   $1 - optional base ref for range scoping
+# Returns 0 if force-pushed bot commits detected, 1 otherwise.
+has_force_pushed_autofix() {
+  local pr_number="${1:-${PR_NUMBER:-}}"
+  local repo="${GITHUB_REPOSITORY:-}"
+
+  if [ -z "${pr_number}" ] || [ -z "${repo}" ]; then
+    return 1
+  fi
+
+  local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  if [ -z "${token}" ]; then
+    return 1
+  fi
+
+  # Get all bot commit SHAs that GitHub recorded on this PR
+  local bot_shas
+  bot_shas=$(curl -sfL \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${repo}/pulls/${pr_number}/commits?per_page=100" 2>/dev/null \
+    | jq -r ".[] | select(.commit.author.name == \"${AUTOFIX_BOT_NAME}\") | .sha" 2>/dev/null || true)
+
+  if [ -z "${bot_shas}" ]; then
+    return 1
+  fi
+
+  # Check if any of those bot commits are missing from current branch history
+  local sha
+  while IFS= read -r sha; do
+    if [ -n "${sha}" ] && ! git cat-file -t "${sha}" >/dev/null 2>&1; then
+      echo "Detected force-pushed autofix: bot commit ${sha:0:10} is no longer in branch history"
+      return 0
+    fi
+  done <<< "${bot_shas}"
+
+  return 1
+}
+
 # Check whether the current HEAD commit was authored by the autofix bot.
 # PR autofix should run only after human commits; bot-authored HEAD commits
 # indicate we're in a rerun after an autofix push and must not write again.

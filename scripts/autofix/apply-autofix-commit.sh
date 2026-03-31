@@ -18,6 +18,18 @@ fi
 BASE="$(scope_base_ref)"
 AUTOFIX_CAP_HIT=false
 
+# ── Persistent kill switch ─────────────────────────────────────────────
+# Check the label first — it survives force pushes and is the single source
+# of truth for "should autofix run on this PR?" (#1095, #1096)
+if has_autofix_disabled_label; then
+  echo "Skipping autofix: '${AUTOFIX_DISABLED_LABEL}' label is present on PR #${PR_NUMBER}"
+  echo "A previous autofix commit was reverted or force-pushed away — manual review required."
+  echo "attempted=false" >> "${GITHUB_OUTPUT}"
+  echo "status=skipped-disabled-label" >> "${GITHUB_OUTPUT}"
+  echo "committed=false" >> "${GITHUB_OUTPUT}"
+  exit 0
+fi
+
 if [ "${GITHUB_ACTOR:-}" = "github-actions[bot]" ] || [ "${GITHUB_ACTOR:-}" = "homeboy-ci[bot]" ]; then
   echo "Skipping autofix: workflow actor is ${GITHUB_ACTOR} (bot loop guard)"
   echo "attempted=false" >> "${GITHUB_OUTPUT}"
@@ -143,8 +155,19 @@ guard_synced_pr_head() {
   if has_reverted_autofix "${REVERT_BASE}"; then
     echo "Skipping autofix: a previous autofix commit was reverted on this branch"
     echo "This indicates the autofix output was incorrect — manual review required."
+    disable_autofix_on_pr
     echo "attempted=false" >> "${GITHUB_OUTPUT}"
     echo "status=skipped-reverted" >> "${GITHUB_OUTPUT}"
+    echo "committed=false" >> "${GITHUB_OUTPUT}"
+    exit 0
+  fi
+
+  if has_force_pushed_autofix; then
+    echo "Skipping autofix: a previous autofix commit was force-pushed away from this branch"
+    echo "This indicates the autofix output was incorrect — manual review required."
+    disable_autofix_on_pr
+    echo "attempted=false" >> "${GITHUB_OUTPUT}"
+    echo "status=skipped-force-pushed" >> "${GITHUB_OUTPUT}"
     echo "committed=false" >> "${GITHUB_OUTPUT}"
     exit 0
   fi
