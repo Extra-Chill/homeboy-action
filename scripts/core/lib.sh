@@ -245,7 +245,7 @@ extract_fix_report_from_output() {
       count: length,
       files: ([.[].file] | unique | sort)
     }) |
-    sort_by(-.count, .cat) |
+    sort_by([-.count, .cat]) |
     .[] |
     [.cat, (.count | tostring), (.files | join(", "))] | @tsv
   ' ${json_files} 2>/dev/null || true

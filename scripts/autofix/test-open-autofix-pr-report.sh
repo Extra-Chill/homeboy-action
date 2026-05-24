@@ -102,6 +102,33 @@ JSON
 
 SOURCE_REPORT="$(extract_fix_report_from_output "${OUTPUT_DIR}")"
 
+REAL_REF_OUTPUT_DIR="${TMP_DIR}/real-refactor-output"
+mkdir -p "${REAL_REF_OUTPUT_DIR}"
+cat > "${REAL_REF_OUTPUT_DIR}/fix.json" <<'JSON'
+{
+  "success": false,
+  "data": {
+    "applied": true,
+    "changed_files": [
+      "src/core/code_audit/detectors/field_patterns.rs"
+    ],
+    "collected_edits": [
+      {
+        "action": "insert",
+        "file": "src/core/code_audit/detectors/field_patterns.rs",
+        "rule_id": "missingimport",
+        "source": "audit"
+      }
+    ],
+    "command": "refactor.sources",
+    "files_modified": 1
+  }
+}
+JSON
+
+REAL_REF_REPORT="$(extract_fix_report_from_output "${REAL_REF_OUTPUT_DIR}")"
+assert_contains "${REAL_REF_REPORT}" $'missingimport\t1\tsrc/core/code_audit/detectors/field_patterns.rs' "report extractor handles refactor.sources collected edits"
+
 BODY_CAPTURE="${TMP_DIR}/source-create.md"
 export BODY_CAPTURE
 export HOMEBOY_PR_MODE="create"
