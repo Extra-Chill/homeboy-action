@@ -202,22 +202,6 @@ commit_autofix_changes() {
     git commit -m "${COMMIT_MSG}"
 }
 
-guard_autofix_diff_safety() {
-  local safety
-
-  if safety="$(autofix_diff_safety_status)"; then
-    echo "Autofix diff safety: ${safety}"
-    echo "autofix-safety=${safety}" >> "${GITHUB_OUTPUT}"
-    return 0
-  fi
-
-  echo "Skipping autofix commit: unsafe diff size — ${safety}"
-  echo "committed=false" >> "${GITHUB_OUTPUT}"
-  echo "status=skipped-unsafe-diff" >> "${GITHUB_OUTPUT}"
-  echo "autofix-safety=${safety}" >> "${GITHUB_OUTPUT}"
-  return 1
-}
-
 verify_autofix_quality_gates() {
   local effective_commands ordered_commands has_lint output_dir cmd output_stem output_json full_cmd cmd_exit overall_exit
 
@@ -369,10 +353,6 @@ if [ -z "${AUTOFIX_REPORT:-}" ]; then
   echo "Skipping autofix commit: changed files are not covered by the autofix report"
   echo "status=skipped-unreported-changes" >> "${GITHUB_OUTPUT}"
   echo "committed=false" >> "${GITHUB_OUTPUT}"
-  exit 0
-fi
-
-if ! guard_autofix_diff_safety; then
   exit 0
 fi
 
