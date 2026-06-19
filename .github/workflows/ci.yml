@@ -314,7 +314,15 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download "${GITHUB_RUN_ID}" --name homeboy-binary --dir .homeboy-bin
+        run: |
+          # The Build job uploads `homeboy-binary` from this same workflow run.
+          # If the download fails the quality job cannot run; surface that as a
+          # build-artifact-handoff problem rather than a bare missing-binary
+          # error later in the action (see #3819).
+          if ! gh run download "${GITHUB_RUN_ID}" --name homeboy-binary --dir .homeboy-bin; then
+            echo "::error::Build artifact 'homeboy-binary' missing from upstream Build job (run ${GITHUB_RUN_ID}); the Lint/Test precondition cannot be met. This is a CI build-artifact handoff failure, not a code finding — check that the Build job succeeded and uploaded the binary."
+            exit 1
+          fi
 
       - name: Resolve Homeboy binary path
         id: binary-path
@@ -326,6 +334,17 @@ jobs:
         run: |
           if [ -n "${BUILD_COMMAND}" ]; then
             path=".homeboy-bin/${BUILD_ARTIFACT_FILE}"
+            # The binary is produced by the upstream Build job and downloaded
+            # above. A missing file here means the artifact handoff failed
+            # (wrong build-artifact-file name, empty/failed upload, etc.) — not
+            # a code problem in the PR. Fail with an actionable message instead
+            # of letting the bare "binary-path does not exist" error surface
+            # deep in the action (see #3819).
+            if [ ! -f "${path}" ]; then
+              echo "::error::Built Homeboy binary missing at '${path}' after downloading the 'homeboy-binary' artifact. This is a CI build-artifact handoff failure, not a code finding. Verify the Build job's build-artifact-path produced a file and that build-artifact-file ('${BUILD_ARTIFACT_FILE}') matches its basename. Contents of .homeboy-bin:"
+              ls -la .homeboy-bin 2>/dev/null || echo "  (.homeboy-bin directory not present)"
+              exit 1
+            fi
             chmod +x "${path}"
             echo "value=${path}" >> "${GITHUB_OUTPUT}"
           else

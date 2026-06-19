@@ -294,7 +294,7 @@ runs:
       run: |
         BINARY="${{ inputs.binary-path }}"
         if [ ! -f "${BINARY}" ]; then
-          echo "::error::binary-path '${BINARY}' does not exist"
+          echo "::error::binary-path '${BINARY}' does not exist. If this path points at a downloaded build artifact (e.g. '.homeboy-bin/...'), the upstream build-artifact handoff failed — this is a CI plumbing problem, not a code finding in the PR."
           exit 1
         fi
         chmod +x "${BINARY}"
