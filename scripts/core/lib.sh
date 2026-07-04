@@ -694,29 +694,9 @@ resolve_push_target() {
   fi
 }
 
-# Normalize legacy quality command inputs to the Homeboy review pillar.
-normalize_quality_command() {
-  local cmd="$1"
-  cmd="$(printf '%s' "${cmd}" | xargs)"
-
-  case "${cmd}" in
-    audit) printf '%s\n' "review audit" ;;
-    audit\ *) printf '%s\n' "review audit ${cmd#audit }" ;;
-    lint) printf '%s\n' "review lint" ;;
-    lint\ *) printf '%s\n' "review lint ${cmd#lint }" ;;
-    test) printf '%s\n' "review test" ;;
-    test\ *) printf '%s\n' "review test ${cmd#test }" ;;
-    build) printf '%s\n' "review build" ;;
-    build\ *) printf '%s\n' "review build ${cmd#build }" ;;
-    ci) printf '%s\n' "review ci" ;;
-    ci\ *) printf '%s\n' "review ci ${cmd#ci }" ;;
-    *) printf '%s\n' "${cmd}" ;;
-  esac
-}
-
 quality_base_command() {
   local cmd="$1"
-  cmd="$(normalize_quality_command "${cmd}")"
+  cmd="$(printf '%s' "${cmd}" | xargs)"
   case "${cmd}" in
     "review audit"*) printf '%s\n' "audit" ;;
     "review lint"*) printf '%s\n' "lint" ;;
@@ -727,7 +707,7 @@ quality_base_command() {
   esac
 }
 
-# Sort commands into canonical order: review audit → review lint → review test → refactor → bench.
+# Sort commands into canonical order: audit → lint → test → refactor → bench.
 # Audit/lint/test are the core quality gates; real refactor and bench commands
 # run after them when explicitly requested. Release and operations commands are
 # handled by dedicated steps and are filtered out here defensively.
@@ -738,12 +718,12 @@ canonicalize_commands() {
 
   IFS=',' read -ra CMD_ARRAY <<< "${commands}"
   for cmd in "${CMD_ARRAY[@]}"; do
-    cmd="$(normalize_quality_command "${cmd}")"
+    cmd="$(printf '%s' "${cmd}" | xargs)"
     base_cmd="$(quality_base_command "${cmd}")"
     case "${base_cmd}" in
-      audit)   audit="review audit" ;;
-      lint)    lint="review lint" ;;
-      test)    test="review test" ;;
+      audit)   audit="${cmd}" ;;
+      lint)    lint="${cmd}" ;;
+      test)    test="${cmd}" ;;
       build)   build="${cmd}" ;;
       refactor) refactor="${cmd}" ;;
       bench) bench="${cmd}" ;;
@@ -783,7 +763,7 @@ has_lint_command() {
 resolve_baseline_commands() {
   local requested_commands="$1"
   local baseline_input="${2:-auto}"
-  local source_commands cmd base_cmd requested_cmd requested_base found result=()
+  local source_commands cmd base_cmd requested_cmd requested_base found found_cmd result=()
 
   baseline_input="$(printf '%s' "${baseline_input}" | xargs)"
   case "${baseline_input}" in
@@ -809,18 +789,20 @@ resolve_baseline_commands() {
     esac
 
     found=false
+    found_cmd=""
     IFS=',' read -ra REQUESTED_ARRAY <<< "${requested_commands}"
     for requested_cmd in "${REQUESTED_ARRAY[@]}"; do
       requested_cmd="$(echo "${requested_cmd}" | xargs)"
       requested_base="$(quality_base_command "${requested_cmd}")"
       if [ "${requested_base}" = "${base_cmd}" ]; then
         found=true
+        found_cmd="${requested_cmd}"
         break
       fi
     done
 
     if [ "${found}" = true ]; then
-      result+=("$(normalize_quality_command "${base_cmd}")")
+      result+=("${found_cmd}")
     fi
   done
 
@@ -868,7 +850,7 @@ homeboy_global_flags() {
 
 build_run_command() {
   local cmd
-  cmd="$(normalize_quality_command "$1")"
+  cmd="$(printf '%s' "$1" | xargs)"
   local component_id="$2"
   local workspace="$3"
   local output_file="${4:-}"
@@ -961,7 +943,7 @@ command_output_stem() {
 
 build_autofix_command() {
   local fix_cmd
-  fix_cmd="$(normalize_quality_command "$1")"
+  fix_cmd="$(printf '%s' "$1" | xargs)"
   local component_id="$2"
   local workspace="$3"
   local output_file="${4:-}"
