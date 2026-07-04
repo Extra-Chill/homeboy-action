@@ -58,12 +58,12 @@ OUTPUT_JSON="/tmp/workspace/out.json"
 unset GITHUB_ACTIONS SCOPE_MODE SCOPE_BASE_REF EXTRA_ARGS || true
 SCOPE_MODE="full"
 assert_equals \
-  "homeboy lint data-machine --path /tmp/workspace" \
+  "homeboy review lint data-machine --path /tmp/workspace" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}")" \
   "lint includes workspace path"
 
 assert_equals \
-  "homeboy --output /tmp/workspace/out.json lint data-machine --path /tmp/workspace" \
+  "homeboy --output /tmp/workspace/out.json review lint data-machine --path /tmp/workspace" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}" "${OUTPUT_JSON}")" \
   "lint includes structured output path"
 
@@ -72,51 +72,51 @@ SCOPE_MODE="changed"
 SCOPE_BASE_REF="origin/main"
 unset HOMEBOY_DIFFERENTIAL_GATING || true
 assert_equals \
-  "homeboy lint data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy review lint data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}")" \
   "lint keeps path with changed-since"
 
 assert_equals \
-  "homeboy --output /tmp/workspace/out.json lint data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy --output /tmp/workspace/out.json review lint data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}" "${OUTPUT_JSON}")" \
   "lint keeps output path with changed-since"
 
 GITHUB_ACTIONS="true"
 assert_equals \
-  "homeboy --force-hot --allow-local-hot --output /tmp/workspace/out.json lint data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy --force-hot --allow-local-hot --output /tmp/workspace/out.json review lint data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}" "${OUTPUT_JSON}")" \
   "GitHub Actions lint opts into hot-runner execution"
 
 assert_equals \
-  "homeboy --force-hot --allow-local-hot test data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy --force-hot --allow-local-hot review test data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "test" "${COMPONENT}" "${WORKSPACE}")" \
   "GitHub Actions test opts into hot-runner execution"
 
 unset GITHUB_ACTIONS
 
 assert_equals \
-  "homeboy test data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy review test data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "test" "${COMPONENT}" "${WORKSPACE}")" \
   "test keeps path with changed scope"
 
 assert_equals \
-  "homeboy audit data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy review audit data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "audit" "${COMPONENT}" "${WORKSPACE}")" \
   "audit keeps path with changed-since"
 
 HOMEBOY_DIFFERENTIAL_GATING="true"
 assert_equals \
-  "homeboy audit data-machine --path /tmp/workspace" \
+  "homeboy review audit data-machine --path /tmp/workspace" \
   "$(build_run_command "audit" "${COMPONENT}" "${WORKSPACE}")" \
   "differential audit uses full scope"
 
 assert_equals \
-  "homeboy test data-machine --path /tmp/workspace" \
+  "homeboy review test data-machine --path /tmp/workspace" \
   "$(build_run_command "test" "${COMPONENT}" "${WORKSPACE}")" \
   "differential test uses full scope"
 
 assert_equals \
-  "homeboy lint data-machine --path /tmp/workspace --changed-since origin/main" \
+  "homeboy review lint data-machine --path /tmp/workspace --changed-since origin/main" \
   "$(build_run_command "lint" "${COMPONENT}" "${WORKSPACE}")" \
   "differential lint keeps changed scope"
 
@@ -128,12 +128,12 @@ assert_equals \
   "review report keeps path with changed-since"
 
 assert_equals \
-  "audit,lint,test" \
+  "review audit,review lint,review test" \
   "$(resolve_baseline_commands "audit,lint,test" "auto")" \
   "baseline auto keeps requested audit/lint/test commands"
 
 assert_equals \
-  "audit" \
+  "review audit" \
   "$(resolve_baseline_commands "audit,lint,test" "audit")" \
   "baseline subset keeps only requested baseline command"
 
@@ -149,12 +149,12 @@ assert_equals \
 
 EXTRA_ARGS="--format json"
 assert_equals \
-  "homeboy audit data-machine --path /tmp/workspace --changed-since origin/main --format json" \
+  "homeboy review audit data-machine --path /tmp/workspace --changed-since origin/main --format json" \
   "$(build_run_command "audit" "${COMPONENT}" "${WORKSPACE}")" \
   "run command appends extra args"
 
 assert_equals \
-  "homeboy --output /tmp/workspace/out.json audit data-machine --path /tmp/workspace --changed-since origin/main --format json" \
+  "homeboy --output /tmp/workspace/out.json review audit data-machine --path /tmp/workspace --changed-since origin/main --format json" \
   "$(build_run_command "audit" "${COMPONENT}" "${WORKSPACE}" "${OUTPUT_JSON}")" \
   "run command keeps output path before extra args"
 
@@ -283,22 +283,22 @@ assert_equals \
 # ── Canonicalize: fleet/deploy commands are filtered out ──
 
 assert_equals \
-  "audit,lint,test" \
+  "review audit,review lint,review test" \
   "$(canonicalize_commands "audit,lint,test,fleet exec my-fleet -- homeboy upgrade")" \
   "canonicalize strips fleet commands"
 
 assert_equals \
-  "audit,lint,test" \
+  "review audit,review lint,review test" \
   "$(canonicalize_commands "audit,deploy my-project --all,lint,test")" \
   "canonicalize strips deploy commands"
 
 assert_equals \
-  "audit,lint,test,refactor --all" \
+  "review audit,review lint,review test,refactor --all" \
   "$(canonicalize_commands "deploy --fleet prod data-machine,audit,lint,test,fleet status my-fleet,refactor --all")" \
   "canonicalize strips all operations and preserves order"
 
 assert_equals \
-  "audit,lint,test,refactor --all,bench" \
+  "review audit,review lint,review test,refactor --all,bench" \
   "$(canonicalize_commands "bench,audit,lint,test,refactor --all")" \
   "canonicalize places bench after quality commands"
 
@@ -308,7 +308,7 @@ assert_equals \
   "canonicalize returns empty when only operations commands"
 
 assert_equals \
-  "audit,lint,test" \
+  "review audit,review lint,review test" \
   "$(canonicalize_commands "release,audit,lint,test")" \
   "canonicalize strips release commands"
 
