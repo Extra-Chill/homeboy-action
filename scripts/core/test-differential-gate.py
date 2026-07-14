@@ -40,23 +40,23 @@ def main() -> None:
         current.mkdir()
         base.mkdir()
 
-        write_json(base / "audit.json", {"success": False, "data": {"summary": {"outliers_found": 5}}})
-        write_json(current / "audit.json", {"success": False, "data": {"summary": {"outliers_found": 5}}})
+        write_json(base / "review-audit.json", {"success": False, "data": {"summary": {"outliers_found": 5}}})
+        write_json(current / "review-audit.json", {"success": False, "data": {"summary": {"outliers_found": 5}}})
         assert_equal(
-            {"audit": "pass"},
-            run_gate({"audit": "fail"}, current, base),
+            {"review audit": "pass"},
+            run_gate({"review audit": "fail"}, current, base),
             "audit failure passes when outliers do not increase",
         )
 
-        write_json(current / "audit.json", {"success": False, "data": {"summary": {"outliers_found": 6}}})
+        write_json(current / "review-audit.json", {"success": False, "data": {"summary": {"outliers_found": 6}}})
         assert_equal(
-            {"audit": "fail"},
-            run_gate({"audit": "fail"}, current, base),
+            {"review audit": "fail"},
+            run_gate({"review audit": "fail"}, current, base),
             "audit failure remains when outliers increase",
         )
 
         write_json(
-            current / "audit.json",
+            current / "review-audit.json",
             {
                 "success": False,
                 "data": {
@@ -66,28 +66,28 @@ def main() -> None:
             },
         )
         assert_equal(
-            {"audit": "pass"},
-            run_gate({"audit": "fail"}, current, base),
+            {"review audit": "pass"},
+            run_gate({"review audit": "fail"}, current, base),
             "changed-scope audit failure passes when no findings were introduced",
         )
 
-        write_json(base / "test.json", {"success": False, "data": {"test_counts": {"failed": 2, "errors": 1}}})
-        write_json(current / "test.json", {"success": False, "data": {"test_counts": {"failed": 2, "errors": 1}}})
+        write_json(base / "review-test.json", {"success": False, "data": {"test_counts": {"failed": 2, "errors": 1}}})
+        write_json(current / "review-test.json", {"success": False, "data": {"test_counts": {"failed": 2, "errors": 1}}})
         assert_equal(
-            {"test": "pass"},
-            run_gate({"test": "fail"}, current, base),
+            {"review test": "pass"},
+            run_gate({"review test": "fail"}, current, base),
             "test failure passes when failures do not increase",
         )
 
-        write_json(current / "test.json", {"success": False, "data": {"test_counts": {"failed": 3, "errors": 1}}})
+        write_json(current / "review-test.json", {"success": False, "data": {"test_counts": {"failed": 3, "errors": 1}}})
         assert_equal(
-            {"test": "fail"},
-            run_gate({"test": "fail"}, current, base),
+            {"review test": "fail"},
+            run_gate({"review test": "fail"}, current, base),
             "test failure remains when failures increase",
         )
 
         write_json(
-            current / "test.json",
+            current / "review-test.json",
             {
                 "success": False,
                 "data": {
@@ -97,22 +97,22 @@ def main() -> None:
             },
         )
         assert_equal(
-            {"test": "pass"},
-            run_gate({"test": "fail"}, current, base),
+            {"review test": "pass"},
+            run_gate({"review test": "fail"}, current, base),
             "changed-scope test failure passes when no failures were introduced",
         )
 
         assert_equal(
-            {"lint": "fail", "audit": "pass"},
-            run_gate({"lint": "fail", "audit": "pass"}, current, base),
+            {"lint": "fail", "review audit": "pass"},
+            run_gate({"lint": "fail", "review audit": "pass"}, current, base),
             "non-audit-test results are left untouched",
         )
 
-        (base / "audit.json").unlink()
-        (current / "audit.json").unlink()
+        (base / "review-audit.json").unlink()
+        (current / "review-audit.json").unlink()
         assert_equal(
-            {"audit": "fail"},
-            run_gate({"audit": "fail"}, current, base),
+            {"review audit": "inconclusive"},
+            run_gate({"review audit": "fail"}, current, base),
             "missing metric files preserve failures",
         )
 

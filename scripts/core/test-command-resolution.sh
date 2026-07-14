@@ -83,6 +83,22 @@ cron_output="$(run_resolve "" "cron")"
 assert_equals "" "$(get_output "${cron_output}" "resolved-commands")" "cron default has no quality commands"
 assert_equals "release" "$(get_output "${cron_output}" "release-commands")" "cron default populates release bucket"
 
+write_output="$(make_temp_file)"
+write_env="$(make_temp_file)"
+set +e
+GITHUB_OUTPUT="${write_output}" \
+  GITHUB_ENV="${write_env}" \
+  COMMANDS_INPUT='refactor --from all --write' \
+  SCOPE_CONTEXT='manual' \
+  bash "${RESOLVE_COMMANDS}" >"${write_output}.log" 2>&1
+write_status=$?
+set -e
+if [ "${write_status}" -eq 0 ]; then
+  printf 'FAIL: source-mutating command is rejected\n'
+  exit 1
+fi
+assert_contains 'Source-mutating --write and --fix commands are not supported' "$(< "${write_output}.log")" "source-mutating command reports an actionable error"
+
 enforce_output="$(RESULTS='{}' COMMANDS='' OPERATIONS_RESULTS='' PR_ACTIVE='' bash "${ENFORCE_STATUS}")"
 assert_contains "No quality gate commands to enforce" "${enforce_output}" "release-only final status skips quality enforcement"
 

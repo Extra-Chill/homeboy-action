@@ -6,7 +6,7 @@
 
 # Get CLI flags for a command based on current scope.
 # Usage: scope_flags_for "review lint"
-#        scope_flags_for "refactor --from all --write"
+#        scope_flags_for "refactor --from all"
 # Prints: "--changed-since abc123" or ""
 scope_flags_for() {
   local cmd="$1"
@@ -15,7 +15,7 @@ scope_flags_for() {
   if declare -F quality_base_command >/dev/null 2>&1; then
     base_cmd="$(quality_base_command "${cmd}")"
   else
-    # Extract the base command (first word) from compound commands like "refactor --from all --write"
+    # Extract the base command (first word) from compound commands like "refactor --from all"
     base_cmd=$(printf '%s' "${cmd}" | awk '{print $1}')
   fi
 

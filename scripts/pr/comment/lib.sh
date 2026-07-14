@@ -112,41 +112,6 @@ is_refactor_owning_section() {
   return 1
 }
 
-command_is_selected() {
-  local command="$1"
-  local selected
-
-  IFS=',' read -ra selected <<< "${COMMANDS:-}"
-  for item in "${selected[@]}"; do
-    item="$(echo "${item}" | xargs)"
-    if [ "${item}" = "${command}" ]; then
-      return 0
-    fi
-  done
-
-  return 1
-}
-
-autofix_has_actionable_content() {
-  if ! is_refactor_owning_section; then
-    return 1
-  fi
-
-  [ "${AUTOFIX_ENABLED:-false}" = "true" ] || return 1
-
-  if [ "${AUTOFIX_COMMITTED:-}" = "true" ]; then
-    return 0
-  fi
-
-  case "${AUTOFIX_STATUS:-}" in
-    push-failed|skipped-head-bot-author)
-      return 0
-      ;;
-  esac
-
-  return 1
-}
-
 commands_have_actionable_status() {
   local selected command status
 
@@ -157,6 +122,21 @@ commands_have_actionable_status() {
 
     status="$(command_status "${command}")"
     if [ "${status}" != "pass" ]; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+command_is_selected() {
+  local command="$1"
+  local selected
+
+  IFS=',' read -ra selected <<< "${COMMANDS:-}"
+  for item in "${selected[@]}"; do
+    item="$(echo "${item}" | xargs)"
+    if [ "${item}" = "${command}" ]; then
       return 0
     fi
   done
@@ -205,10 +185,6 @@ outputs_have_actionable_content() {
 
 comment_has_actionable_content() {
   if commands_have_actionable_status; then
-    return 0
-  fi
-
-  if autofix_has_actionable_content; then
     return 0
   fi
 

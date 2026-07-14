@@ -83,7 +83,6 @@ test_generation() {
   assert_equals "homeboy ${placement_flags}--output /tmp/out.json review lint component --path /tmp/workspace" "$(build_run_command 'review lint' component /tmp/workspace /tmp/out.json)" "${generation} review builder preserves output ordering"
   assert_equals "homeboy ${placement_flags}--output /tmp/out.json bench component --path /tmp/workspace" "$(build_run_command bench component /tmp/workspace /tmp/out.json)" "${generation} bench builder"
   assert_equals "homeboy ${placement_flags}refactor component --all --path /tmp/workspace" "$(build_run_command 'refactor --all' component /tmp/workspace)" "${generation} refactor builder"
-  assert_equals "homeboy ${placement_flags}refactor component --from lint --write --path /tmp/workspace" "$(build_autofix_command 'refactor --from lint --write' component /tmp/workspace)" "${generation} autofix builder"
   assert_equals "homeboy ${placement_flags}review component --path /tmp/workspace --report=pr-comment" "$(build_review_report_command component /tmp/workspace)" "${generation} report builder"
   assert_equals 1 "$(wc -l < "${HOMEBOY_HELP_LOG}" | xargs)" "${generation} capability is detected once"
 }
