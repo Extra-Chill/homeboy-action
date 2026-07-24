@@ -86,8 +86,24 @@ if ! grep -q 'run-with-liveness-timeout.sh' "${ROOT_DIR}/scripts/core/run-homebo
   printf 'FAIL: quality commands are not individually bounded\n'
   exit 1
 fi
+if ! grep -q 'run-with-liveness-timeout.sh' "${ROOT_DIR}/scripts/core/run-baseline-commands.sh"; then
+  printf 'FAIL: baseline commands are not individually bounded\n'
+  exit 1
+fi
+if grep -q 'run-with-liveness-timeout.sh.*| tee' "${ROOT_DIR}/scripts/core/run-baseline-commands.sh"; then
+  printf 'FAIL: baseline command finalization still depends on an unbounded tee pipeline\n'
+  exit 1
+fi
+if ! grep -A18 'name: Run baseline Homeboy commands' "${ACTION}" | grep -q 'HOMEBOY_ACTION_EXECUTION_TIMEOUT_SECONDS:'; then
+  printf 'FAIL: baseline commands do not receive the execution timeout input\n'
+  exit 1
+fi
+if ! grep -A18 'name: Run baseline Homeboy commands' "${ACTION}" | grep -q 'HOMEBOY_ACTION_CLEANUP_TIMEOUT_SECONDS:'; then
+  printf 'FAIL: baseline commands do not receive the cleanup timeout input\n'
+  exit 1
+fi
 if grep -q 'run-with-liveness-timeout.sh.*| tee' "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh"; then
   printf 'FAIL: quality command finalization still depends on an unbounded tee pipeline\n'
   exit 1
 fi
-printf 'PASS: action applies bounded execution to each quality command\n'
+printf 'PASS: action applies bounded execution to each quality and baseline command\n'
