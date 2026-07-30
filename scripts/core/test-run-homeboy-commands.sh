@@ -62,7 +62,8 @@ fi
 printf 'PASS: failed review test records a current-run failure and mirrors its valid result\n'
 
 for output_mode in missing malformed; do
-  rm -f "${TMP_DIR}/workspace/homeboy-ci-results/review-test.json"
+  mkdir -p "${TMP_DIR}/workspace/homeboy-ci-results"
+  printf '%s\n' '{"schema":"homeboy/command-result/v3","command":"review","success":true,"status":"succeeded","exit_code":0,"data":{"stale":true}}' > "${TMP_DIR}/workspace/homeboy-ci-results/review-test.json"
   cat > "${TMP_DIR}/bin/homeboy" <<'SH'
 #!/usr/bin/env bash
 output=""
@@ -92,7 +93,7 @@ SH
     exit 1
   fi
 done
-printf 'PASS: zero-exit missing and malformed structured output fail closed\n'
+printf 'PASS: stale non-bench results cannot satisfy missing or malformed current output\n'
 
 for envelope_mode in empty wrong-command inconsistent; do
   cat > "${TMP_DIR}/bin/homeboy" <<'SH'
@@ -205,9 +206,16 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 mkdir -p "$(dirname "${output}")"
-printf '%s\n' '{"schema":"homeboy/command-result/v3","command":"bench","success":true,"status":"succeeded","exit_code":0,"data":{}}' > "${output}"
+if [ -e "${output}" ]; then
+  printf 'stale bench output was not removed\n' >&2
+  exit 99
+fi
+printf '%s\n' '{"schema":"homeboy/command-result/v3","command":"bench","success":true,"status":"succeeded","exit_code":0,"data":{"current":true}}' > "${output}"
 SH
 chmod +x "${TMP_DIR}/bin/homeboy"
+
+mkdir -p "${TMP_DIR}/workspace/homeboy-ci-results"
+printf '%s\n' '{"schema":"homeboy/command-result/v3","command":"bench","success":true,"status":"succeeded","exit_code":0,"data":{"stale":true}}' > "${TMP_DIR}/workspace/homeboy-ci-results/bench.json"
 
 PATH="${TMP_DIR}/bin:${PATH}" \
 GITHUB_ACTION_PATH="${ROOT_DIR}" \
@@ -219,8 +227,52 @@ COMPONENT_NAME='homeboy-action' \
 bash "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh" >"${TMP_DIR}/bench.log" 2>&1
 
 bench_output_dir="$(grep '^HOMEBOY_OUTPUT_DIR=' "${TMP_DIR}/bench-env" | cut -d= -f2-)"
-if ! cmp -s "${bench_output_dir}/bench.json" "${TMP_DIR}/workspace/homeboy-ci-results/bench.json"; then
-  printf 'FAIL: bench result does not retain its existing artifact and comment copies\n'
+if ! jq -e '.data.current == true' "${TMP_DIR}/workspace/homeboy-ci-results/bench.json" >/dev/null 2>&1 \
+  || ! cmp -s "${bench_output_dir}/bench.json" "${TMP_DIR}/workspace/homeboy-ci-results/bench.json"; then
+  printf 'FAIL: bench result does not replace stale output and retain its artifact and comment copies\n'
   exit 1
 fi
-printf 'PASS: bench retains its existing artifact and comment copies without conflict\n'
+printf 'PASS: bench requires current output and retains its artifact and comment copies\n'
+
+mkdir -p "${TMP_DIR}/symlink-workspace" "${TMP_DIR}/outside-results"
+printf 'outside sentinel\n' > "${TMP_DIR}/outside-results/sentinel"
+ln -s "${TMP_DIR}/outside-results" "${TMP_DIR}/symlink-workspace/homeboy-ci-results"
+
+set +e
+PATH="${TMP_DIR}/bin:${PATH}" \
+GITHUB_ACTION_PATH="${ROOT_DIR}" \
+GITHUB_WORKSPACE="${TMP_DIR}/symlink-workspace" \
+GITHUB_OUTPUT="${TMP_DIR}/symlink-dir-output" \
+GITHUB_ENV="${TMP_DIR}/symlink-dir-env" \
+RESOLVED_COMMANDS='bench' \
+COMPONENT_NAME='homeboy-action' \
+bash "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh" >"${TMP_DIR}/symlink-dir.log" 2>&1
+exit_code=$?
+set -e
+
+if [ "${exit_code}" -ne 1 ] || ! grep -q 'must be a real directory' "${TMP_DIR}/symlink-dir.log" || ! grep -qx 'outside sentinel' "${TMP_DIR}/outside-results/sentinel"; then
+  printf 'FAIL: symlinked CI results directory fails closed without touching its target\n'
+  exit 1
+fi
+printf 'PASS: symlinked CI results directory fails closed without touching its target\n'
+
+mkdir -p "${TMP_DIR}/target-symlink-workspace/homeboy-ci-results"
+printf 'outside result sentinel\n' > "${TMP_DIR}/outside-results/bench.json"
+ln -s "${TMP_DIR}/outside-results/bench.json" "${TMP_DIR}/target-symlink-workspace/homeboy-ci-results/bench.json"
+
+PATH="${TMP_DIR}/bin:${PATH}" \
+GITHUB_ACTION_PATH="${ROOT_DIR}" \
+GITHUB_WORKSPACE="${TMP_DIR}/target-symlink-workspace" \
+GITHUB_OUTPUT="${TMP_DIR}/symlink-target-output" \
+GITHUB_ENV="${TMP_DIR}/symlink-target-env" \
+RESOLVED_COMMANDS='bench' \
+COMPONENT_NAME='homeboy-action' \
+bash "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh" >"${TMP_DIR}/symlink-target.log" 2>&1
+
+if [ -L "${TMP_DIR}/target-symlink-workspace/homeboy-ci-results/bench.json" ] \
+  || ! jq -e '.data.current == true' "${TMP_DIR}/target-symlink-workspace/homeboy-ci-results/bench.json" >/dev/null 2>&1 \
+  || ! grep -qx 'outside result sentinel' "${TMP_DIR}/outside-results/bench.json"; then
+  printf 'FAIL: symlinked CI result target is replaced without writing outside the workspace\n'
+  exit 1
+fi
+printf 'PASS: symlinked CI result target is replaced without writing outside the workspace\n'
