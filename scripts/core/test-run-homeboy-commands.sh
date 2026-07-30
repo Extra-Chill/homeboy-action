@@ -49,9 +49,20 @@ if ! grep -q 'FAILED (exit code 1)' "${TMP_DIR}/run.log"; then
   exit 1
 fi
 
-printf 'PASS: failed review test records a current-run failure\n'
+output_dir="$(grep '^HOMEBOY_OUTPUT_DIR=' "${TMP_DIR}/github-env" | cut -d= -f2-)"
+temporary_result="${output_dir}/review-test.json"
+ci_result="${TMP_DIR}/workspace/homeboy-ci-results/review-test.json"
+if ! jq -e . "${temporary_result}" >/dev/null 2>&1 \
+  || ! jq -e . "${ci_result}" >/dev/null 2>&1 \
+  || ! cmp -s "${temporary_result}" "${ci_result}"; then
+  printf 'FAIL: valid review test result is retained and mirrored to CI artifacts\n'
+  exit 1
+fi
+
+printf 'PASS: failed review test records a current-run failure and mirrors its valid result\n'
 
 for output_mode in missing malformed; do
+  rm -f "${TMP_DIR}/workspace/homeboy-ci-results/review-test.json"
   cat > "${TMP_DIR}/bin/homeboy" <<'SH'
 #!/usr/bin/env bash
 output=""
@@ -74,6 +85,10 @@ SH
   set -e
   if [ "${exit_code}" -ne 1 ] || ! grep -q '^results={"review test":"fail"}$' "${TMP_DIR}/${output_mode}-output" || ! grep -q 'did not write valid structured output' "${TMP_DIR}/${output_mode}.log"; then
     printf 'FAIL: zero-exit %s structured output fails closed\n' "${output_mode}"
+    exit 1
+  fi
+  if [ -e "${TMP_DIR}/workspace/homeboy-ci-results/review-test.json" ]; then
+    printf 'FAIL: %s output is advertised as a CI result\n' "${output_mode}"
     exit 1
   fi
 done
@@ -178,3 +193,34 @@ if ! grep -q 'TIMED OUT (exit code 124)' "${TMP_DIR}/timeout.log"; then
   exit 1
 fi
 printf 'PASS: timed out review test preserves actionable timeout classification\n'
+
+cat > "${TMP_DIR}/bin/homeboy" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+output=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$(dirname "${output}")"
+printf '%s\n' '{"schema":"homeboy/command-result/v3","command":"bench","success":true,"status":"succeeded","exit_code":0,"data":{}}' > "${output}"
+SH
+chmod +x "${TMP_DIR}/bin/homeboy"
+
+PATH="${TMP_DIR}/bin:${PATH}" \
+GITHUB_ACTION_PATH="${ROOT_DIR}" \
+GITHUB_WORKSPACE="${TMP_DIR}/workspace" \
+GITHUB_OUTPUT="${TMP_DIR}/bench-output" \
+GITHUB_ENV="${TMP_DIR}/bench-env" \
+RESOLVED_COMMANDS='bench' \
+COMPONENT_NAME='homeboy-action' \
+bash "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh" >"${TMP_DIR}/bench.log" 2>&1
+
+bench_output_dir="$(grep '^HOMEBOY_OUTPUT_DIR=' "${TMP_DIR}/bench-env" | cut -d= -f2-)"
+if ! cmp -s "${bench_output_dir}/bench.json" "${TMP_DIR}/workspace/homeboy-ci-results/bench.json"; then
+  printf 'FAIL: bench result does not retain its existing artifact and comment copies\n'
+  exit 1
+fi
+printf 'PASS: bench retains its existing artifact and comment copies without conflict\n'

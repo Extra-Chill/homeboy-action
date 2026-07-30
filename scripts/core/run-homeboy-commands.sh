@@ -77,6 +77,8 @@ for CMD in "${CMD_ARRAY[@]}"; do
     echo "::error::homeboy ${CMD} did not write valid structured output to ${OUTPUT_JSON}"
   elif [ "$(printf '%s' "${CMD}" | awk '{print $1}')" = "bench" ]; then
     cp "${OUTPUT_JSON}" "${HOMEBOY_OUTPUT_DIR}/${OUTPUT_STEM}.json"
+  else
+    cp "${OUTPUT_JSON}" "${HOMEBOY_CI_RESULTS_DIR}/${OUTPUT_STEM}.json"
   fi
 
   if [ "${CMD_EXIT}" -eq 0 ] && [ "${STRUCTURED_OUTPUT}" = true ]; then
