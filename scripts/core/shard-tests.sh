@@ -78,8 +78,9 @@ aggregate() {
     fi
     expected_total="$(jq '.tests | length' <<< "${shard}")"
     jq -e --arg root "${command%% *}" --arg phase_status "${status}" '
-      .schema == "homeboy/command-result/v3" and .command == $root and (.success | type == "boolean") and (.status | type == "string") and (.exit_code | type == "number")
-      and (.data.test_counts | type == "object") and all(.data.test_counts.passed, .data.test_counts.failed, .data.test_counts.skipped, .data.test_counts.total; type == "number" and . >= 0)
+      .schema == "homeboy/command-result/v3" and .command == $root and (.success | type == "boolean") and (.status | type == "string") and (.exit_code | type == "number" and floor == .)
+      and (if .success then .status == "succeeded" and .exit_code == 0 else .status == "failed" and .exit_code != 0 end)
+      and (.data.test_counts | type == "object") and all(.data.test_counts.passed, .data.test_counts.failed, .data.test_counts.skipped, .data.test_counts.total; type == "number" and . >= 0 and floor == .)
       and (.data.test_counts.passed + .data.test_counts.failed + .data.test_counts.skipped == .data.test_counts.total)
       and (if $phase_status == "pass" then .success == true and .exit_code == 0 and .data.test_counts.failed == 0
             elif $phase_status == "fail" then .success == false and .exit_code != 0
