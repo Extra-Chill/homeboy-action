@@ -21,6 +21,7 @@ if [ "${HOMEBOY_TEST_INVENTORY_ONLY:-}" = 1 ]; then
 fi
 
 output=""
+printf '%s\n' "$@" > "${FAKE_HOMEBOY_ARGS}"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --output) output="$2"; shift 2 ;;
@@ -28,6 +29,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 [ -n "${HOMEBOY_TEST_SHARD_MANIFEST:-}" ] && [ -s "${HOMEBOY_TEST_SHARD_MANIFEST}" ] || exit 98
+[ "${HOMEBOY_TEST_SHARD_MANIFEST}" = "${FAKE_EXPECTED_SHARD_MANIFEST}" ] || exit 96
 total="$(jq '.tests | length' "${HOMEBOY_TEST_SHARD_MANIFEST}")"
 [ "${total}" -gt 0 ] || exit 97
 mkdir -p "$(dirname "${output}")"
@@ -65,13 +67,16 @@ inventory_digest="$(jq -r .inventory_digest "${tmp}/one.json")"
 shard_manifest="${tmp}/shard-1.json"
 jq --arg id shard-1 '.shards[] | select(.id == $id)' "${tmp}/one.json" > "${shard_manifest}"
 mkdir -p "${tmp}/replay-workspace"
-PATH="${tmp}/bin:${PATH}" GITHUB_ACTION_PATH="${ROOT}" GITHUB_WORKSPACE="${tmp}/replay-workspace" GITHUB_OUTPUT="${tmp}/replay-output" GITHUB_ENV="${tmp}/replay-env" RESOLVED_COMMANDS='review test' COMPONENT_NAME=fixture HOMEBOY_TEST_SHARD_MANIFEST="${shard_manifest}" \
+PATH="${tmp}/bin:${PATH}" GITHUB_ACTION_PATH="${ROOT}" GITHUB_WORKSPACE="${tmp}/replay-workspace" GITHUB_OUTPUT="${tmp}/replay-output" GITHUB_ENV="${tmp}/replay-env" RESOLVED_COMMANDS='review test' COMPONENT_NAME=fixture HOMEBOY_TEST_SHARD_MANIFEST="${shard_manifest}" FAKE_EXPECTED_SHARD_MANIFEST="${shard_manifest}" FAKE_HOMEBOY_ARGS="${tmp}/replay-args" \
   bash "${ROOT}/scripts/core/run-homeboy-commands.sh"
 replay_result="${tmp}/replay-workspace/homeboy-ci-results/review-test.json"
 replay_total="$(jq '.data.test_counts.total' "${replay_result}")"
 [ "${replay_total}" -gt 0 ] || { printf 'FAIL: non-empty shard manifest replay did not execute tests\n'; exit 1; }
 [ "${replay_total}" = "$(jq '.tests | length' "${shard_manifest}")" ] || { printf 'FAIL: replay total does not match assigned shard membership\n'; exit 1; }
-printf 'PASS: non-empty shard manifest replays assigned tests through the action command wrapper\n'
+if grep -Fx -- "$(jq -r '.tests[0]' "${shard_manifest}")" "${tmp}/replay-args" >/dev/null; then
+  printf 'FAIL: action expanded an assigned test ID into the Homeboy command argv\n'; exit 1
+fi
+printf 'PASS: non-empty shard manifest is passed by path and replays assigned tests through the action command wrapper\n'
 for phase in candidate baseline; do
   for shard in shard-1 shard-2; do
     mkdir -p "${tmp}/artifacts/${phase}-${shard}/${phase}/homeboy-ci-results"
@@ -167,4 +172,5 @@ fi
 # The literal workflow expression is the contract.
 # shellcheck disable=SC2016
 grep -F 'baseline_result="$(jq -r --arg command "${COMMAND}"' "${WORKFLOW}" >/dev/null || { printf 'FAIL: differential baseline metadata is not derived from its aggregate result\n'; exit 1; }
+grep -F 'result_filename="$(command_result_filename "${COMMAND}")"' "${WORKFLOW}" >/dev/null || { printf 'FAIL: differential baseline lookup does not use the canonical result filename\n'; exit 1; }
 printf 'PASS: policy waits for sharded Test reconciliation while preserving unsharded behavior\n'
