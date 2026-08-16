@@ -55,6 +55,7 @@ set +a
   HOMEBOY_ARGS_FILE="${TMP_DIR}/homeboy-args" \
   RESOLVED_COMMANDS='review build' \
   COMPONENT_NAME='packages/gutenberg' \
+  GITHUB_ACTIONS='false' \
   bash "${ROOT_DIR}/scripts/core/run-homeboy-commands.sh"
 )
 
