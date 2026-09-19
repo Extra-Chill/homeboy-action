@@ -69,3 +69,38 @@ echo "Config resolved from ${CONFIG_FILE}:"
 echo "  id:        ${PORTABLE_ID}"
 echo "  extension: ${PORTABLE_EXTENSION:-none}"
 echo "  dir:       ${CONFIG_DIR}"
+
+# ── Homeboy config dir (project/server/fleet config for operations commands) ──
+# Homeboy resolves projects, servers, and fleets from
+# $XDG_CONFIG_HOME/homeboy/{projects,servers,fleets}. A fresh runner has none
+# of that, so deploy/fleet commands cannot target anything. When the caller
+# sets `config-dir`, it names the repo-relative directory that CONTAINS a
+# `homeboy/` subdirectory, and this step points XDG_CONFIG_HOME at it for every
+# later homeboy invocation in the run. The runner user's real ~/.config is
+# never read, copied into, or merged.
+
+HOMEBOY_CONFIG_DIR_INPUT="${HOMEBOY_CONFIG_DIR_INPUT:-}"
+if [ -n "${HOMEBOY_CONFIG_DIR_INPUT}" ]; then
+  WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
+  case "${HOMEBOY_CONFIG_DIR_INPUT}" in
+    /*) CONFIG_HOME="${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+    *)  CONFIG_HOME="${WORKSPACE_ROOT}/${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+  esac
+  CONFIG_HOME="${CONFIG_HOME%/}"
+
+  if [ ! -d "${CONFIG_HOME}/homeboy" ] || [ ! -d "${CONFIG_HOME}/homeboy/projects" ]; then
+    echo "::error::config-dir '${HOMEBOY_CONFIG_DIR_INPUT}' must contain homeboy/projects/ (resolved: ${CONFIG_HOME})"
+    echo "::error::Expected layout: <config-dir>/homeboy/projects/<project-id>/<project-id>.json and <config-dir>/homeboy/servers/<server-id>.json"
+    exit 1
+  fi
+
+  PROJECT_IDS="$(find "${CONFIG_HOME}/homeboy/projects" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd ' ' -)"
+  SERVER_IDS="$(find "${CONFIG_HOME}/homeboy/servers" -mindepth 1 -maxdepth 1 -type f -name '*.json' -printf '%f\n' 2>/dev/null | sed 's/\.json$//' | sort | paste -sd ' ' -)"
+
+  echo "XDG_CONFIG_HOME=${CONFIG_HOME}" >> "${GITHUB_ENV}"
+  echo "homeboy-config-home=${CONFIG_HOME}" >> "${GITHUB_OUTPUT}"
+
+  echo "Homeboy config dir: ${CONFIG_HOME}"
+  echo "  projects: ${PROJECT_IDS:-none}"
+  echo "  servers:  ${SERVER_IDS:-none}"
+fi

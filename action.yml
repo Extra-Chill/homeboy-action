@@ -199,6 +199,11 @@ inputs:
     required: false
     default: ''
 
+  config-dir:
+    description: 'Repo-relative directory that CONTAINS a homeboy/ subdirectory holding projects/, servers/, and fleets/ config. When set, XDG_CONFIG_HOME is pointed at it for every homeboy invocation in the run so operations commands (deploy/fleet) can resolve their target from checked-in config. Leave identity_file null in servers/*.json and supply the key via ssh-key. If empty, no config is injected.'
+    required: false
+    default: ''
+
   # ── Release ──
   release-dry-run:
     description: 'Preview the release without making changes.'
@@ -302,6 +307,7 @@ runs:
       env:
         COMPONENT_NAME: ${{ inputs.component }}
         EXTENSION_INPUT: ${{ inputs.extension }}
+        HOMEBOY_CONFIG_DIR_INPUT: ${{ inputs.config-dir }}
       run: bash ${{ github.action_path }}/scripts/core/phase-progress.sh run preparation -- bash ${{ github.action_path }}/scripts/setup/read-portable-config.sh
 
     # ── Phase 2: Resolve execution context ──
