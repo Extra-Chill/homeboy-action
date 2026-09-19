@@ -71,36 +71,48 @@ echo "  extension: ${PORTABLE_EXTENSION:-none}"
 echo "  dir:       ${CONFIG_DIR}"
 
 # ── Homeboy config dir (project/server/fleet config for operations commands) ──
-# Homeboy resolves projects, servers, and fleets from
-# $XDG_CONFIG_HOME/homeboy/{projects,servers,fleets}. A fresh runner has none
-# of that, so deploy/fleet commands cannot target anything. When the caller
-# sets `config-dir`, it names the repo-relative directory that CONTAINS a
-# `homeboy/` subdirectory, and this step points XDG_CONFIG_HOME at it for every
-# later homeboy invocation in the run. The runner user's real ~/.config is
-# never read, copied into, or merged.
+# Homeboy resolves projects, servers, and fleets from $HOME/.config/homeboy/
+# (homeboy-paths resolved_home_root; XDG_CONFIG_HOME is NOT honored). A fresh
+# runner has none of that, so deploy/fleet commands cannot target anything.
+# When the caller sets `config-dir`, it names the repo-relative directory that
+# CONTAINS a `homeboy/` subdirectory, and this step materializes that tree into
+# the runner's config root before any homeboy invocation. Only projects/,
+# servers/, and fleets/ are copied — never the caller's whole tree — and only
+# onto a root that does not already hold those entries, so a self-hosted
+# runner's real config is never overwritten.
 
 HOMEBOY_CONFIG_DIR_INPUT="${HOMEBOY_CONFIG_DIR_INPUT:-}"
 if [ -n "${HOMEBOY_CONFIG_DIR_INPUT}" ]; then
   WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
   case "${HOMEBOY_CONFIG_DIR_INPUT}" in
-    /*) CONFIG_HOME="${HOMEBOY_CONFIG_DIR_INPUT}" ;;
-    *)  CONFIG_HOME="${WORKSPACE_ROOT}/${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+    /*) CONFIG_SRC="${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+    *)  CONFIG_SRC="${WORKSPACE_ROOT}/${HOMEBOY_CONFIG_DIR_INPUT}" ;;
   esac
-  CONFIG_HOME="${CONFIG_HOME%/}"
+  CONFIG_SRC="${CONFIG_SRC%/}"
 
-  if [ ! -d "${CONFIG_HOME}/homeboy" ] || [ ! -d "${CONFIG_HOME}/homeboy/projects" ]; then
-    echo "::error::config-dir '${HOMEBOY_CONFIG_DIR_INPUT}' must contain homeboy/projects/ (resolved: ${CONFIG_HOME})"
+  if [ ! -d "${CONFIG_SRC}/homeboy" ] || [ ! -d "${CONFIG_SRC}/homeboy/projects" ]; then
+    echo "::error::config-dir '${HOMEBOY_CONFIG_DIR_INPUT}' must contain homeboy/projects/ (resolved: ${CONFIG_SRC})"
     echo "::error::Expected layout: <config-dir>/homeboy/projects/<project-id>/<project-id>.json and <config-dir>/homeboy/servers/<server-id>.json"
     exit 1
   fi
 
-  PROJECT_IDS="$(find "${CONFIG_HOME}/homeboy/projects" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd ' ' -)"
-  SERVER_IDS="$(find "${CONFIG_HOME}/homeboy/servers" -mindepth 1 -maxdepth 1 -type f -name '*.json' -printf '%f\n' 2>/dev/null | sed 's/\.json$//' | sort | paste -sd ' ' -)"
+  CONFIG_ROOT="${HOMEBOY_CONFIG_ROOT_OVERRIDE:-${HOME}/.config/homeboy}"
+  mkdir -p "${CONFIG_ROOT}"
+  for entry in projects servers fleets; do
+    [ -d "${CONFIG_SRC}/homeboy/${entry}" ] || continue
+    if [ -e "${CONFIG_ROOT}/${entry}" ]; then
+      echo "::error::config-dir refuses to overwrite existing ${CONFIG_ROOT}/${entry}; this runner already has Homeboy config"
+      exit 1
+    fi
+    cp -r "${CONFIG_SRC}/homeboy/${entry}" "${CONFIG_ROOT}/${entry}"
+  done
 
-  echo "XDG_CONFIG_HOME=${CONFIG_HOME}" >> "${GITHUB_ENV}"
-  echo "homeboy-config-home=${CONFIG_HOME}" >> "${GITHUB_OUTPUT}"
+  PROJECT_IDS="$(find "${CONFIG_ROOT}/projects" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd ' ' -)"
+  SERVER_IDS="$(find "${CONFIG_ROOT}/servers" -mindepth 1 -maxdepth 1 -type f -name '*.json' -printf '%f\n' 2>/dev/null | sed 's/\.json$//' | sort | paste -sd ' ' -)"
 
-  echo "Homeboy config dir: ${CONFIG_HOME}"
+  echo "homeboy-config-root=${CONFIG_ROOT}" >> "${GITHUB_OUTPUT}"
+
+  echo "Homeboy config materialized from ${CONFIG_SRC}/homeboy into ${CONFIG_ROOT}"
   echo "  projects: ${PROJECT_IDS:-none}"
   echo "  servers:  ${SERVER_IDS:-none}"
 fi

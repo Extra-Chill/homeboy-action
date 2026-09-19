@@ -316,7 +316,7 @@ Use these outputs to gate downstream jobs:
 | `args` | No | | Extra arguments passed to each command |
 | `ssh-key` | No | | SSH private key for `deploy`/`fleet` operations commands. Starts an agent and loads it; if empty, SSH is assumed pre-configured. |
 | `ssh-known-hosts` | No | | Extra `known_hosts` entries for the servers those commands reach. |
-| `config-dir` | No | | Repo-relative directory that **contains** a `homeboy/` subdirectory with `projects/`, `servers/`, `fleets/`. Sets `XDG_CONFIG_HOME` for every homeboy invocation so operations commands can resolve checked-in targets. See [Deploy from CI](#deploy-from-ci). |
+| `config-dir` | No | | Repo-relative directory that **contains** a `homeboy/` subdirectory with `projects/`, `servers/`, `fleets/`. Materialized into the runner's Homeboy config root so operations commands can resolve checked-in targets. See [Deploy from CI](#deploy-from-ci). |
 | `rig` | No | | Bench rig pair/list passed to `homeboy bench --rig` |
 | `scenario` | No | | Bench scenario ID passed to `homeboy bench --scenario` |
 | `runs` | No | | Bench run count passed to `homeboy bench --runs` |
@@ -595,9 +595,11 @@ jobs:
 
 Operations commands (`deploy`, `fleet`) need a Homeboy **project** (server id,
 base path, component attachments) and a **server** (host, user, port). Homeboy
-reads those from `$XDG_CONFIG_HOME/homeboy/{projects,servers,fleets}`, which a
-fresh runner does not have. Check the config into the repository and point
-`config-dir` at the directory that contains `homeboy/`:
+reads those from `$HOME/.config/homeboy/{projects,servers,fleets}` — it does
+not honor `XDG_CONFIG_HOME` — and a fresh runner has none. Check the config
+into the repository and point `config-dir` at the directory that contains
+`homeboy/`; the action copies `projects/`, `servers/`, and `fleets/` into the
+runner's config root before the first homeboy invocation:
 
 ```
 deploy/
@@ -611,8 +613,9 @@ deploy/
 
 Host, user, and port are not secrets. Leave `identity_file` as `null` and
 supply the key through `ssh-key`, which loads it into an agent for the run.
-Drop `local_path` from project component entries — the runner has no
-workspace checkout; deploy resolves release assets by version.
+Ship the project with `components: []` and attach the one component you are
+deploying at run time (see below); Homeboy needs its `homeboy.json` even for
+asset-based deploys.
 
 ```yaml
 name: Deploy
@@ -634,6 +637,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+        with:
+          repository: my-org/${{ inputs.component }}
+          ref: v${{ inputs.version }}
+          path: components/${{ inputs.component }}
+          fetch-depth: 1
+      - name: Attach component
+        run: |
+          f="deploy/homeboy/projects/my-site/my-site.json"
+          jq --arg id "${{ inputs.component }}" --arg p "$PWD/components/${{ inputs.component }}" \
+            '.components = [{"id":$id,"local_path":$p}]' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
       - uses: Extra-Chill/homeboy-action@v2
         with:
           config-dir: deploy
@@ -643,9 +657,15 @@ jobs:
 ```
 
 `config-dir` fails the run before any command if `<config-dir>/homeboy/projects`
-is missing, and prints the project and server ids it found. It never reads,
-copies into, or merges the runner user's real `~/.config/homeboy`. The reusable
-`ci.yml` and `release.yml` workflows forward the same input.
+is missing, and prints the project and server ids it materialized. It refuses
+to overwrite a config root that already holds `projects/`, `servers/`, or
+`fleets/`, so a self-hosted runner's real configuration is never clobbered.
+The reusable `ci.yml` and `release.yml` workflows forward the same input.
+
+Deploying from a GitHub Release asset still requires the component's own
+`homeboy.json` on disk: Homeboy resolves every project component through its
+attached `local_path`. Shallow-clone the component at its tag and attach that
+path in the project before running `deploy`.
 
 ### Recommended CI Profile
 
