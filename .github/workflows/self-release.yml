@@ -1,5 +1,13 @@
 # Continuous release pipeline for Homeboy Action.
 #
+# This is the action's OWN self-release, kept separate from the reusable
+# consumer workflow (.github/workflows/release.yml). It deliberately does NOT
+# consume that workflow: a reusable workflow can only reach the composite
+# action via Extra-Chill/homeboy-action@<ref>, which resolves to the
+# already-published channel — the release would run the OLD action instead of
+# validating the promotion candidate. `uses: ./` here pins every phase to the
+# checked-out revision, which is the entire point of self-release.
+#
 # Triggers on push to main (immediate release) and manual dispatch.
 # Checks for releasable conventional commits since the last tag. If found:
 #   1. Version bump + changelog generation
