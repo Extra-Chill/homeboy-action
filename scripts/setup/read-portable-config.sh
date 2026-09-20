@@ -71,48 +71,36 @@ echo "  extension: ${PORTABLE_EXTENSION:-none}"
 echo "  dir:       ${CONFIG_DIR}"
 
 # ── Homeboy config dir (project/server/fleet config for operations commands) ──
-# Homeboy resolves projects, servers, and fleets from $HOME/.config/homeboy/
-# (homeboy-paths resolved_home_root; XDG_CONFIG_HOME is NOT honored). A fresh
-# runner has none of that, so deploy/fleet commands cannot target anything.
-# When the caller sets `config-dir`, it names the repo-relative directory that
-# CONTAINS a `homeboy/` subdirectory, and this step materializes that tree into
-# the runner's config root before any homeboy invocation. Only projects/,
-# servers/, and fleets/ are copied — never the caller's whole tree — and only
-# onto a root that does not already hold those entries, so a self-hosted
-# runner's real config is never overwritten.
+# Operations commands (deploy/fleet) need a Homeboy project and server, which
+# live in Homeboy's config root and are absent on a fresh runner. When the
+# caller sets `config-dir`, it names the repo-relative directory that IS the
+# config root — it contains projects/, servers/, and optionally components/
+# and fleets/ — and this step exports HOMEBOY_CONFIG_ROOT so every later
+# homeboy invocation in the run resolves from it (homeboy#14783). Nothing is
+# copied and the runner user's real config is never read or touched.
 
 HOMEBOY_CONFIG_DIR_INPUT="${HOMEBOY_CONFIG_DIR_INPUT:-}"
 if [ -n "${HOMEBOY_CONFIG_DIR_INPUT}" ]; then
   WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
   case "${HOMEBOY_CONFIG_DIR_INPUT}" in
-    /*) CONFIG_SRC="${HOMEBOY_CONFIG_DIR_INPUT}" ;;
-    *)  CONFIG_SRC="${WORKSPACE_ROOT}/${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+    /*) CONFIG_ROOT="${HOMEBOY_CONFIG_DIR_INPUT}" ;;
+    *)  CONFIG_ROOT="${WORKSPACE_ROOT}/${HOMEBOY_CONFIG_DIR_INPUT}" ;;
   esac
-  CONFIG_SRC="${CONFIG_SRC%/}"
+  CONFIG_ROOT="${CONFIG_ROOT%/}"
 
-  if [ ! -d "${CONFIG_SRC}/homeboy" ] || [ ! -d "${CONFIG_SRC}/homeboy/projects" ]; then
-    echo "::error::config-dir '${HOMEBOY_CONFIG_DIR_INPUT}' must contain homeboy/projects/ (resolved: ${CONFIG_SRC})"
-    echo "::error::Expected layout: <config-dir>/homeboy/projects/<project-id>/<project-id>.json and <config-dir>/homeboy/servers/<server-id>.json"
+  if [ ! -d "${CONFIG_ROOT}/projects" ]; then
+    echo "::error::config-dir '${HOMEBOY_CONFIG_DIR_INPUT}' must contain projects/ (resolved: ${CONFIG_ROOT})"
+    echo "::error::Expected layout: <config-dir>/projects/<project-id>/<project-id>.json and <config-dir>/servers/<server-id>.json"
     exit 1
   fi
-
-  CONFIG_ROOT="${HOMEBOY_CONFIG_ROOT_OVERRIDE:-${HOME}/.config/homeboy}"
-  mkdir -p "${CONFIG_ROOT}"
-  for entry in projects servers fleets; do
-    [ -d "${CONFIG_SRC}/homeboy/${entry}" ] || continue
-    if [ -e "${CONFIG_ROOT}/${entry}" ]; then
-      echo "::error::config-dir refuses to overwrite existing ${CONFIG_ROOT}/${entry}; this runner already has Homeboy config"
-      exit 1
-    fi
-    cp -r "${CONFIG_SRC}/homeboy/${entry}" "${CONFIG_ROOT}/${entry}"
-  done
 
   PROJECT_IDS="$(find "${CONFIG_ROOT}/projects" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort | paste -sd ' ' -)"
   SERVER_IDS="$(find "${CONFIG_ROOT}/servers" -mindepth 1 -maxdepth 1 -type f -name '*.json' -printf '%f\n' 2>/dev/null | sed 's/\.json$//' | sort | paste -sd ' ' -)"
 
+  echo "HOMEBOY_CONFIG_ROOT=${CONFIG_ROOT}" >> "${GITHUB_ENV}"
   echo "homeboy-config-root=${CONFIG_ROOT}" >> "${GITHUB_OUTPUT}"
 
-  echo "Homeboy config materialized from ${CONFIG_SRC}/homeboy into ${CONFIG_ROOT}"
+  echo "Homeboy config root: ${CONFIG_ROOT}"
   echo "  projects: ${PROJECT_IDS:-none}"
   echo "  servers:  ${SERVER_IDS:-none}"
 fi

@@ -90,7 +90,7 @@ on:
         type: string
         default: ''
       config-dir:
-        description: 'Repo-relative directory that contains a homeboy/ subdirectory with projects/, servers/, and fleets/ config, materialized into the runner Homeboy config root so operations commands can resolve checked-in targets.'
+        description: 'Repo-relative Homeboy config root (projects/, servers/, components/, fleets/) exported as HOMEBOY_CONFIG_ROOT so operations commands can resolve checked-in targets.'
         type: string
         default: ''
       action-ref:

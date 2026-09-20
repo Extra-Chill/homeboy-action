@@ -316,7 +316,7 @@ Use these outputs to gate downstream jobs:
 | `args` | No | | Extra arguments passed to each command |
 | `ssh-key` | No | | SSH private key for `deploy`/`fleet` operations commands. Starts an agent and loads it; if empty, SSH is assumed pre-configured. |
 | `ssh-known-hosts` | No | | Extra `known_hosts` entries for the servers those commands reach. |
-| `config-dir` | No | | Repo-relative directory that **contains** a `homeboy/` subdirectory with `projects/`, `servers/`, `fleets/`. Materialized into the runner's Homeboy config root so operations commands can resolve checked-in targets. See [Deploy from CI](#deploy-from-ci). |
+| `config-dir` | No | | Repo-relative Homeboy config root (`projects/`, `servers/`, `components/`, `fleets/`), exported as `HOMEBOY_CONFIG_ROOT` so operations commands can resolve checked-in targets. See [Deploy from CI](#deploy-from-ci). |
 | `rig` | No | | Bench rig pair/list passed to `homeboy bench --rig` |
 | `scenario` | No | | Bench scenario ID passed to `homeboy bench --scenario` |
 | `runs` | No | | Bench run count passed to `homeboy bench --runs` |
@@ -594,28 +594,32 @@ jobs:
 ### Deploy from CI
 
 Operations commands (`deploy`, `fleet`) need a Homeboy **project** (server id,
-base path, component attachments) and a **server** (host, user, port). Homeboy
-reads those from `$HOME/.config/homeboy/{projects,servers,fleets}` — it does
-not honor `XDG_CONFIG_HOME` — and a fresh runner has none. Check the config
-into the repository and point `config-dir` at the directory that contains
-`homeboy/`; the action copies `projects/`, `servers/`, and `fleets/` into the
-runner's config root before the first homeboy invocation:
+base path, component attachments) and a **server** (host, user, port), which a
+fresh runner does not have. Check a Homeboy config root into the repository
+and point `config-dir` at it; the action exports `HOMEBOY_CONFIG_ROOT`
+(homeboy#14783) so every homeboy invocation in the run resolves from it. Nothing
+is copied and the runner user's real config is never read.
 
 ```
-deploy/
-└── homeboy/
-    ├── projects/
-    │   └── my-site/
-    │       └── my-site.json      # domain, server_id, base_path, path_roots, components[]
-    └── servers/
-        └── prod.json             # id, host, user, port, identity_file: null
+deploy/homeboy/
+├── projects/
+│   └── my-site/
+│       └── my-site.json      # domain, server_id, base_path, path_roots, components[]
+├── servers/
+│   └── prod.json             # id, host, user, port, identity_file: null
+└── components/
+    └── my-plugin.json        # id, remote_url (GitHub), remote_path
 ```
 
 Host, user, and port are not secrets. Leave `identity_file` as `null` and
 supply the key through `ssh-key`, which loads it into an agent for the run.
-Ship the project with `components: []` and attach the one component you are
-deploying at run time (see below); Homeboy needs its `homeboy.json` even for
-asset-based deploys.
+
+Attachments in `components[]` need only `id` and `remote_path`; leave
+`local_path` empty. With a GitHub `remote_url` in the standalone registry
+entry, Homeboy resolves the component's `homeboy.json` and release asset from
+the repository at the tag — no source checkout on the runner
+(homeboy#14782). Homeboy needs a GitHub token for that; the runner's
+`GITHUB_TOKEN` covers public and org repositories.
 
 ```yaml
 name: Deploy
@@ -637,35 +641,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/checkout@v6
-        with:
-          repository: my-org/${{ inputs.component }}
-          ref: v${{ inputs.version }}
-          path: components/${{ inputs.component }}
-          fetch-depth: 1
-      - name: Attach component
-        run: |
-          f="deploy/homeboy/projects/my-site/my-site.json"
-          jq --arg id "${{ inputs.component }}" --arg p "$PWD/components/${{ inputs.component }}" \
-            '.components = [{"id":$id,"local_path":$p}]' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
       - uses: Extra-Chill/homeboy-action@v2
         with:
-          config-dir: deploy
+          config-dir: deploy/homeboy
           ssh-key: ${{ secrets.DEPLOY_SSH_KEY }}
           ssh-known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
           commands: deploy my-site ${{ inputs.component }} --version ${{ inputs.version }}
 ```
 
-`config-dir` fails the run before any command if `<config-dir>/homeboy/projects`
-is missing, and prints the project and server ids it materialized. It refuses
-to overwrite a config root that already holds `projects/`, `servers/`, or
-`fleets/`, so a self-hosted runner's real configuration is never clobbered.
-The reusable `ci.yml` and `release.yml` workflows forward the same input.
-
-Deploying from a GitHub Release asset still requires the component's own
-`homeboy.json` on disk: Homeboy resolves every project component through its
-attached `local_path`. Shallow-clone the component at its tag and attach that
-path in the project before running `deploy`.
+`config-dir` fails the run before any command if `<config-dir>/projects` is
+missing, and prints the project and server ids it found. The reusable
+`ci.yml` and `release.yml` workflows forward the same input.
 
 ### Recommended CI Profile
 

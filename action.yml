@@ -200,7 +200,7 @@ inputs:
     default: ''
 
   config-dir:
-    description: 'Repo-relative directory that CONTAINS a homeboy/ subdirectory holding projects/, servers/, and fleets/ config. When set, those entries are materialized into the runner''s Homeboy config root ($HOME/.config/homeboy — Homeboy does not honor XDG_CONFIG_HOME) before any homeboy invocation, so operations commands (deploy/fleet) can resolve their target from checked-in config. Refuses to overwrite a root that already holds those entries. Leave identity_file null in servers/*.json and supply the key via ssh-key. If empty, no config is injected.'
+    description: 'Repo-relative directory that IS a Homeboy config root — it contains projects/, servers/, and optionally components/ and fleets/. When set, HOMEBOY_CONFIG_ROOT is exported for every homeboy invocation in the run (homeboy#14783) so operations commands (deploy/fleet) resolve their target from checked-in config. Nothing is copied; the runner user''s real config is never read. Leave identity_file null in servers/*.json and supply the key via ssh-key. If empty, no config is injected.'
     required: false
     default: ''
 
