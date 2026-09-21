@@ -172,11 +172,31 @@ Available inputs: `dry-run`, `args`, `extension`, `extension-ref`, `component`,
 `prepared-ref`,
 `php-version`, `node-version`, `release-skip-publish`,
 `release-skip-github-release`, `release-branch`, `execution-timeout-seconds`,
-`dispatch-repo`, `dispatch-event`.
+`publisher-known-hosts`, `dispatch-repo`, `dispatch-event`.
 Workflow outputs mirror the composite action (`released`, `release-version`,
 `release-tag`, `release-bump-type`, `skipped-reason`, `tooling-identity`) so a
 post-release job can chain on the result. The workflow also exposes
 `source-sha` and `released-source-sha` for prepared-source consumers.
+
+Publisher SSH credentials are optional. Map an existing consumer secret to the
+declared reusable-workflow secret and provide pinned host keys as a workflow
+input; the private key is loaded into an agent only for the real release and is
+removed before the action finishes:
+
+```yaml
+jobs:
+  release:
+    uses: Extra-Chill/homeboy-action/.github/workflows/release.yml@v2
+    with:
+      publisher-known-hosts: |
+        publish.example.com ssh-ed25519 AAAA...pinned-host-key...
+    secrets:
+      PUBLISH_SSH_KEY: ${{ secrets.EXISTING_PUBLISHER_SSH_KEY }}
+```
+
+Do not use `ssh-keyscan` output for `publisher-known-hosts`. The dispatch
+payload's `sha` and `released-source-sha` identify the source repository commit;
+any publisher or mirror commit is a separate downstream identity.
 
 #### Release credentials
 
@@ -376,6 +396,7 @@ Use these outputs to gate downstream jobs:
 | `args` | No | | Extra arguments passed to each command |
 | `ssh-key` | No | | SSH private key for `deploy`/`fleet` operations commands. Starts an agent and loads it; if empty, SSH is assumed pre-configured. |
 | `ssh-known-hosts` | No | | Extra `known_hosts` entries for the servers those commands reach. |
+| `ssh-require-known-hosts` | No | `false` | Require pinned `ssh-known-hosts` and strict host verification; used by the reusable publisher credential handoff. |
 | `config-dir` | No | | Repo-relative Homeboy config root (`projects/`, `servers/`, `components/`, `fleets/`), exported as `HOMEBOY_CONFIG_ROOT` so operations commands can resolve checked-in targets. See [Deploy from CI](#deploy-from-ci). |
 | `rig` | No | | Bench rig pair/list passed to `homeboy bench --rig` |
 | `scenario` | No | | Bench scenario ID passed to `homeboy bench --scenario` |

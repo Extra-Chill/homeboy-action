@@ -57,6 +57,10 @@ on:
         description: 'Additional arguments passed to the Homeboy release command.'
         type: string
         default: ''
+      publisher-known-hosts:
+        description: 'Pinned SSH known_hosts entries for optional publisher credentials. Required when PUBLISH_SSH_KEY is supplied.'
+        type: string
+        default: ''
       extension:
         description: 'Single extension ID override.'
         type: string
@@ -122,6 +126,9 @@ on:
         required: false
       DISPATCH_TOKEN:
         description: 'Token with contents:write on dispatch-repo. Optional; when absent, a HOMEBOY_APP_* installation token scoped to dispatch-repo is used. GITHUB_TOKEN cannot dispatch cross-repo.'
+        required: false
+      PUBLISH_SSH_KEY:
+        description: 'Optional SSH private key for native Git publishing. Pair with publisher-known-hosts; the key is agent-loaded only during the action.'
         required: false
     outputs:
       released:
@@ -260,6 +267,8 @@ jobs:
           release-dry-run: 'true'
           release-skip-publish: 'true'
           release-skip-github-release: 'true'
+          ssh-known-hosts: ${{ inputs.publisher-known-hosts }}
+          ssh-require-known-hosts: 'false'
 
       # The failed-SHA marker is keyed by the resolved tooling identity, not
       # just the SHA, so a CI-side fix (new homeboy binary / extension) that
@@ -372,6 +381,9 @@ jobs:
           release-dry-run: ${{ inputs.dry-run }}
           release-skip-publish: ${{ inputs.release-skip-publish }}
           release-skip-github-release: ${{ inputs.release-skip-github-release }}
+          ssh-key: ${{ secrets.PUBLISH_SSH_KEY }}
+          ssh-known-hosts: ${{ inputs.publisher-known-hosts }}
+          ssh-require-known-hosts: 'true'
           app-token: ${{ steps.app-token.outputs.token || '' }}
 
   # ── Post-release dispatch ──
