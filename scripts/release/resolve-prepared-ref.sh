@@ -6,6 +6,14 @@ prepared_ref="${PREPARED_REF:-}"
 release_branch="${RELEASE_BRANCH:-main}"
 release_branch="${release_branch#refs/heads/}"
 
+remote_ls() {
+  if [ -n "${SOURCE_TOKEN:-}" ]; then
+    git -c "http.extraheader=AUTHORIZATION: bearer ${SOURCE_TOKEN}" ls-remote origin "$@"
+  else
+    git ls-remote origin "$@"
+  fi
+}
+
 if [ -z "${prepared_ref}" ]; then
   echo "source-sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
   echo "source-ref=event" >> "${GITHUB_OUTPUT}"
@@ -15,7 +23,7 @@ fi
 if [[ "${prepared_ref}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   source_sha="${prepared_ref,,}"
 else
-  refs="$(git ls-remote origin \
+  refs="$(remote_ls \
     "refs/heads/${prepared_ref}" \
     "refs/tags/${prepared_ref}" \
     "refs/tags/${prepared_ref}^{}")"
@@ -28,7 +36,7 @@ if ! [[ "${source_sha:-}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 
-branch_sha="$(git ls-remote origin "refs/heads/${release_branch}" | awk 'NF {print $1; exit}')"
+branch_sha="$(remote_ls "refs/heads/${release_branch}" | awk 'NF {print $1; exit}')"
 if [ -z "${branch_sha}" ]; then
   echo "::error::release branch '${release_branch}' could not be resolved on origin."
   exit 1

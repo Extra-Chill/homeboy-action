@@ -121,7 +121,7 @@ on:
         description: 'GitHub App private key for release credentials. Optional; falls back to the automatic token.'
         required: false
       DISPATCH_TOKEN:
-        description: 'Token with actions:write on dispatch-repo. Optional; when absent, a HOMEBOY_APP_* installation token scoped to dispatch-repo is used. GITHUB_TOKEN cannot dispatch cross-repo.'
+        description: 'Token with contents:write on dispatch-repo. Optional; when absent, a HOMEBOY_APP_* installation token scoped to dispatch-repo is used. GITHUB_TOKEN cannot dispatch cross-repo.'
         required: false
     outputs:
       released:
@@ -151,6 +151,12 @@ on:
       dispatch-repo:
         description: 'The owner/repo that was notified, or empty.'
         value: ${{ inputs.dispatch-repo }}
+      source-sha:
+        description: 'Resolved immutable source SHA selected by the check job.'
+        value: ${{ jobs.check.outputs.source-sha }}
+      released-source-sha:
+        description: 'Immutable source SHA revalidated and used by the release job.'
+        value: ${{ jobs.release.outputs.released-source-sha }}
 
 # A called workflow cannot request a permission the CALLER has not granted —
 # GitHub fails the whole run at startup, before any job, with no usable error
@@ -218,6 +224,7 @@ jobs:
         env:
           PREPARED_REF: ${{ inputs.prepared-ref }}
           RELEASE_BRANCH: ${{ inputs.release-branch || 'main' }}
+          SOURCE_TOKEN: ${{ github.token }}
         run: bash .homeboy-action/scripts/release/resolve-prepared-ref.sh
 
       - name: Check out resolved prepared source revision
@@ -308,6 +315,7 @@ jobs:
       release-bump-type: ${{ steps.release.outputs.release-bump-type }}
       skipped-reason: ${{ steps.release.outputs.skipped-reason }}
       component: ${{ steps.release.outputs.component }}
+      released-source-sha: ${{ steps.revalidate-source.outputs.source-sha }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -330,6 +338,15 @@ jobs:
           repository: Extra-Chill/homeboy-action
           ref: ${{ needs.check.outputs.action-sha }}
           path: .homeboy-action
+
+      - name: Revalidate prepared source revision
+        id: revalidate-source
+        shell: bash
+        env:
+          PREPARED_REF: ${{ inputs.prepared-ref }}
+          RELEASE_BRANCH: ${{ inputs.release-branch || 'main' }}
+          SOURCE_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+        run: bash .homeboy-action/scripts/release/resolve-prepared-ref.sh
 
       # The nested action checkout is untracked in the consumer repository and
       # `homeboy release` treats untracked paths as a dirty working tree.
@@ -400,6 +417,14 @@ jobs:
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.repo }}
 
+      - name: Check out released tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release.outputs.release-tag }}
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ github.token }}
+
       - name: Resolve released tag SHA
         id: tag-sha
         shell: bash
@@ -407,7 +432,7 @@ jobs:
           TAG: ${{ needs.release.outputs.release-tag }}
         run: |
           set -euo pipefail
-          tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | awk '$2 ~ /\^\{\}$/ {print $1; exit}')"
+          tag_sha="$(git rev-parse --verify "${TAG}^{commit}")"
           if [ -z "${tag_sha}" ]; then
             echo "::error::Could not resolve released tag '${TAG}' to its commit SHA."
             exit 1
@@ -436,7 +461,7 @@ jobs:
             token="${APP_TOKEN}"
             source="HOMEBOY_APP installation token scoped to ${DISPATCH_REPO}"
           else
-            echo "::error::No token can dispatch to ${DISPATCH_REPO}: GITHUB_TOKEN cannot send repository_dispatch cross-repo. Pass secrets.DISPATCH_TOKEN (actions:write on the target) or install the Homeboy App on the target repository."
+            echo "::error::No token can dispatch to ${DISPATCH_REPO}: GITHUB_TOKEN cannot send repository_dispatch cross-repo. Pass secrets.DISPATCH_TOKEN (contents:write on the target) or install the Homeboy App on the target repository."
             exit 1
           fi
 
@@ -496,7 +521,8 @@ jobs:
       - name: Clear failure cache
         env:
           GH_TOKEN: ${{ github.token }}
+          CACHE_PREFIX: release-last-failed-${{ github.ref_name }}-${{ needs.check.outputs.source-sha }}-${{ inputs.component || 'root' }}-
         run: |
-          gh cache list --json id,key --jq '.[] | select(.key | startswith("release-last-failed-${{ github.ref_name }}-${{ needs.check.outputs.source-sha }}-${{ inputs.component || 'root' }}-")) | .id' | while read -r id; do
+          gh cache list --json id,key | jq -r --arg prefix "${CACHE_PREFIX}" '.[] | select(.key | startswith($prefix)) | .id' | while read -r id; do
             gh cache delete "$id" 2>/dev/null || true
           done

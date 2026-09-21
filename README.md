@@ -175,7 +175,8 @@ Available inputs: `dry-run`, `args`, `extension`, `extension-ref`, `component`,
 `dispatch-repo`, `dispatch-event`.
 Workflow outputs mirror the composite action (`released`, `release-version`,
 `release-tag`, `release-bump-type`, `skipped-reason`, `tooling-identity`) so a
-post-release job can chain on the result.
+post-release job can chain on the result. The workflow also exposes
+`source-sha` and `released-source-sha` for prepared-source consumers.
 
 #### Release credentials
 
@@ -201,8 +202,13 @@ whose head commit is itself a `release:` commit skip the pipeline entirely.
 For dependency-preparation jobs, `prepared-ref` selects the source to release.
 The check job resolves it to an immutable SHA, requires it to equal the current
 `release-branch` tip, and checks out that same SHA for the real release. This
-prevents a stale prepared commit from releasing over newer branch state. Empty
-`component` and `prepared-ref` preserve root-consumer behavior.
+validation is repeated in the real release job immediately before the action
+starts, preventing a stale prepared commit from releasing over newer branch
+state. Pass a branch such as `prepared-ref: main` when sequential monorepo jobs
+need the newest branch tip after an earlier component release commit; the
+workflow resolves that branch again and exposes `source-sha` plus
+`released-source-sha` for downstream callers. Empty `component` and
+`prepared-ref` preserve root-consumer behavior.
 
 Inside a reusable workflow `uses: ./` would resolve to the caller's checkout,
 so the workflow pins `Extra-Chill/homeboy-action` via an `action-ref` input
@@ -249,7 +255,7 @@ triggering event SHA.
 
 `GITHUB_TOKEN` cannot dispatch to another repository. The job uses
 `secrets.DISPATCH_TOKEN` when the caller provides one (a token with
-`actions: write` on the target), otherwise a `HOMEBOY_APP_*` installation
+`contents: write` on the target), otherwise a `HOMEBOY_APP_*` installation
 token scoped to exactly `dispatch-repo` — so the Homeboy App must be installed
 on the target repository. With neither, the job fails with an explicit error.
 Outputs `dispatched` and `dispatch-repo` are exported for chaining.
