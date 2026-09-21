@@ -65,6 +65,14 @@ on:
         description: 'Optional git revision to install from the extension source.'
         type: string
         default: ''
+      component:
+        description: 'Component name or path override passed to the composite action.'
+        type: string
+        default: ''
+      prepared-ref:
+        description: 'Optional prepared consumer source ref. It must resolve to the current release-branch tip.'
+        type: string
+        default: ''
       php-version:
         description: 'PHP version override.'
         type: string
@@ -166,6 +174,7 @@ jobs:
       should-release: ${{ steps.check.outputs.should-release }}
       tooling-identity: ${{ steps.release-check.outputs.tooling-identity }}
       action-sha: ${{ steps.action-sha.outputs.sha }}
+      source-sha: ${{ steps.source-sha.outputs.source-sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -203,6 +212,22 @@ jobs:
           ref: ${{ steps.action-sha.outputs.sha }}
           path: .homeboy-action
 
+      - name: Resolve prepared source revision
+        id: source-sha
+        shell: bash
+        env:
+          PREPARED_REF: ${{ inputs.prepared-ref }}
+          RELEASE_BRANCH: ${{ inputs.release-branch || 'main' }}
+        run: bash .homeboy-action/scripts/release/resolve-prepared-ref.sh
+
+      - name: Check out resolved prepared source revision
+        if: inputs.prepared-ref != ''
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.source-sha.outputs.source-sha }}
+          fetch-depth: 0
+          clean: false
+
       # The nested action checkout is untracked in the consumer repository and
       # `homeboy release` treats untracked paths as a dirty working tree.
       # Exclude it per-clone (never a tracked change) so the gate stays honest
@@ -220,6 +245,7 @@ jobs:
           args: ${{ inputs.args }}
           extension: ${{ inputs.extension }}
           extension-ref: ${{ inputs.extension-ref }}
+          component: ${{ inputs.component }}
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
           execution-timeout-seconds: ${{ inputs.execution-timeout-seconds }}
@@ -237,7 +263,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ runner.temp }}/homeboy-release-last-failed
-          key: release-last-failed-${{ github.ref_name }}-${{ github.sha }}-${{ steps.release-check.outputs.tooling-identity }}
+          key: release-last-failed-${{ github.ref_name }}-${{ steps.source-sha.outputs.source-sha }}-${{ inputs.component || 'root' }}-${{ steps.release-check.outputs.tooling-identity }}
 
       - name: Decide whether to release
         id: check
@@ -296,6 +322,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           token: ${{ steps.app-token.outputs.token || github.token }}
+          ref: ${{ needs.check.outputs.source-sha }}
 
       - name: Check out resolved action revision
         uses: actions/checkout@v6
@@ -320,6 +347,7 @@ jobs:
           args: ${{ inputs.args }}
           extension: ${{ inputs.extension }}
           extension-ref: ${{ inputs.extension-ref }}
+          component: ${{ inputs.component }}
           php-version: ${{ inputs.php-version }}
           node-version: ${{ inputs.node-version }}
           execution-timeout-seconds: ${{ inputs.execution-timeout-seconds }}
@@ -372,6 +400,20 @@ jobs:
           owner: ${{ steps.target.outputs.owner }}
           repositories: ${{ steps.target.outputs.repo }}
 
+      - name: Resolve released tag SHA
+        id: tag-sha
+        shell: bash
+        env:
+          TAG: ${{ needs.release.outputs.release-tag }}
+        run: |
+          set -euo pipefail
+          tag_sha="$(git ls-remote "https://github.com/${GITHUB_REPOSITORY}.git" "refs/tags/${TAG}" "refs/tags/${TAG}^{}" | awk '$2 ~ /\^\{\}$/ {print $1; exit}')"
+          if [ -z "${tag_sha}" ]; then
+            echo "::error::Could not resolve released tag '${TAG}' to its commit SHA."
+            exit 1
+          fi
+          echo "sha=${tag_sha}" >> "${GITHUB_OUTPUT}"
+
       - name: Send repository_dispatch
         shell: bash
         env:
@@ -383,6 +425,7 @@ jobs:
           VERSION: ${{ needs.release.outputs.release-version }}
           TAG: ${{ needs.release.outputs.release-tag }}
           BUMP: ${{ needs.release.outputs.release-bump-type }}
+          TAG_SHA: ${{ steps.tag-sha.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -403,7 +446,7 @@ jobs:
             --arg version "${VERSION}" \
             --arg tag "${TAG}" \
             --arg bump "${BUMP}" \
-            --arg sha "${GITHUB_SHA}" \
+            --arg sha "${TAG_SHA}" \
             --arg run_url "${RUN_URL}" \
             '{component:$component,repository:$repository,version:$version,tag:$tag,bump:$bump,sha:$sha,run_url:$run_url}' \
             > "${RUNNER_TEMP}/client_payload.json"
@@ -427,6 +470,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.check.outputs.source-sha }}
 
       - name: Save failed SHA
         run: git rev-parse HEAD > "${RUNNER_TEMP}/homeboy-release-last-failed"
@@ -437,12 +482,14 @@ jobs:
           path: ${{ runner.temp }}/homeboy-release-last-failed
           # Keyed by tooling identity so a later tooling fix produces a new
           # key and the prior failure no longer matches (homeboy-action#257).
-          key: release-last-failed-${{ github.ref_name }}-${{ github.sha }}-${{ needs.check.outputs.tooling-identity }}
+          key: release-last-failed-${{ github.ref_name }}-${{ needs.check.outputs.source-sha }}-${{ inputs.component || 'root' }}-${{ needs.check.outputs.tooling-identity }}
 
   # ── Clear failure cache on success ──
   clear-failure:
     name: Clear failure cache
-    needs: release
+    needs:
+      - check
+      - release
     if: ${{ needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -450,6 +497,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh cache list --json id,key --jq '.[] | select(.key | startswith("release-last-failed-${{ github.ref_name }}-")) | .id' | while read -r id; do
+          gh cache list --json id,key --jq '.[] | select(.key | startswith("release-last-failed-${{ github.ref_name }}-${{ needs.check.outputs.source-sha }}-${{ inputs.component || 'root' }}-")) | .id' | while read -r id; do
             gh cache delete "$id" 2>/dev/null || true
           done

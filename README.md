@@ -168,7 +168,8 @@ the caller did not grant before it schedules any jobs. The canonical minimal
 caller is maintained in
 [`fixtures/reusable-release-minimal-consumer.yml`](fixtures/reusable-release-minimal-consumer.yml).
 
-Available inputs: `dry-run`, `args`, `extension`, `extension-ref`,
+Available inputs: `dry-run`, `args`, `extension`, `extension-ref`, `component`,
+`prepared-ref`,
 `php-version`, `node-version`, `release-skip-publish`,
 `release-skip-github-release`, `release-branch`, `execution-timeout-seconds`,
 `dispatch-repo`, `dispatch-event`.
@@ -187,14 +188,21 @@ creation in the same repository. Pass `secrets: inherit` from the caller.
 #### Failed-release retry protection
 
 A failed release records its SHA in an Actions cache keyed by
-`release-last-failed-<branch>-<sha>-<tooling-identity>`. Unattended pushes of
-the same SHA with the same resolved tooling are then skipped — without this,
+`release-last-failed-<branch>-<source-sha>-<component>-<tooling-identity>`.
+Unattended pushes of the same source SHA, component, and resolved tooling are
+then skipped — without this,
 every push retriggers a doomed release in a loop. Because the key includes the
 resolved tooling identity, a fixed homeboy binary or extension revision
 produces a fresh key and a previously-blocked SHA self-heals
 (homeboy-action#257). Dispatching the caller workflow manually always
 bypasses the marker: a human dispatch is an explicit "retry this now". Pushes
 whose head commit is itself a `release:` commit skip the pipeline entirely.
+
+For dependency-preparation jobs, `prepared-ref` selects the source to release.
+The check job resolves it to an immutable SHA, requires it to equal the current
+`release-branch` tip, and checks out that same SHA for the real release. This
+prevents a stale prepared commit from releasing over newer branch state. Empty
+`component` and `prepared-ref` preserve root-consumer behavior.
 
 Inside a reusable workflow `uses: ./` would resolve to the caller's checkout,
 so the workflow pins `Extra-Chill/homeboy-action` via an `action-ref` input
@@ -235,7 +243,9 @@ and reads `github.event.client_payload`:
 ```
 
 `component` is the Homeboy portable id from `homeboy.json`, not the repository
-name.
+name. The dispatch `sha` is the peeled commit SHA of the emitted tag, so it
+identifies the actual released source even when `prepared-ref` differs from the
+triggering event SHA.
 
 `GITHUB_TOKEN` cannot dispatch to another repository. The job uses
 `secrets.DISPATCH_TOKEN` when the caller provides one (a token with
