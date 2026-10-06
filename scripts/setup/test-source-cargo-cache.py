@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory() as temporary:
         output = root / 'outputs'
         output.unlink(missing_ok=True)
         env = dict(os.environ, SOURCE_PATH=str(source), SOURCE_BUILD_PROFILE=profile,
-                   GITHUB_OUTPUT=str(output), **overrides)
+                   GITHUB_OUTPUT=str(output), XDG_CACHE_HOME=str(root / 'cache'), **overrides)
         run('bash', str(resolver), cwd=root, env=env)
         return dict(line.split('=', 1) for line in output.read_text().splitlines() if '=' in line)
 
@@ -58,7 +58,8 @@ with tempfile.TemporaryDirectory() as temporary:
     release = resolve()
     assert dev['key'] != release['key'], 'dev artifacts cannot be an exact release cache hit'
     assert dev['restore-keys'] != release['restore-keys'], 'dev is not a release fallback'
-    assert '/target/homeboy-action-source' in release['target-path']
+    assert '/homeboy-action/source-targets/' in release['target-path']
+    assert not Path(release['target-path']).is_relative_to(source)
     assert not (source / 'target/release').exists(), 'quality target is not a source build owner'
     cold = build(release)
     assert all(not artifact['fresh'] for artifact in cold), cold
@@ -100,4 +101,5 @@ with tempfile.TemporaryDirectory() as temporary:
             other_compiler = resolve(RUSTUP_TOOLCHAIN=toolchain)
             assert other_compiler['restore-keys'] != changed['restore-keys']
             break
+    shutil.rmtree(target)
     print('PASS: native dev/release isolation, cold/warm restore, source refresh and dependency reuse')

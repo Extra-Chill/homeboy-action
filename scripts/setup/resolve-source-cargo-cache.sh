@@ -24,7 +24,7 @@ root = pathlib.Path(os.environ['SOURCE_CACHE_ROOT'])
 digest = lambda value: hashlib.sha256(value).hexdigest()
 compiler = subprocess.check_output(['rustc', '-vV']).decode()
 profile = os.environ.get('SOURCE_BUILD_PROFILE', 'release')
-configuration = {}
+configuration = {'source_root': str(root), 'runner_image': os.environ.get('ImageOS', '')}
 for name in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'CARGO_BUILD_TARGET',
              'CARGO_INCREMENTAL', 'SOURCE_BUILD_COMMAND'):
     configuration[name] = os.environ.get(name, '')
@@ -49,7 +49,9 @@ else:
               and 'target' not in path.relative_to(root).parts and '.git' not in path.relative_to(root).parts]
     tree = digest(json.dumps(source).encode())
 prefix = f"{os.environ.get('RUNNER_OS', os.uname().sysname)}-cargo-source-v2-{compatibility}-{lock}-"
-target = pathlib.Path(os.environ.get('SOURCE_TARGET_DIR', str(root / 'target/homeboy-action-source')))
+cache_home = pathlib.Path(os.environ.get('XDG_CACHE_HOME', str(pathlib.Path.home() / '.cache')))
+source_target = cache_home / 'homeboy-action/source-targets' / digest(str(root).encode())
+target = pathlib.Path(os.environ.get('SOURCE_TARGET_DIR', str(source_target)))
 if not target.is_absolute():
     target = pathlib.Path.cwd() / target
 print('enabled=true')
