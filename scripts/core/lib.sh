@@ -128,7 +128,7 @@ canonicalize_commands() {
       test)    test="${cmd}" ;;
       build)   build="${cmd}" ;;
       bench) bench="${cmd}" ;;
-      release|fleet|deploy|git) ;;
+      release|deploy|git) ;;
       *)       others+=("${cmd}") ;;
     esac
   done
