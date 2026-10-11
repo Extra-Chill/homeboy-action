@@ -141,6 +141,11 @@ assert_equals \
   "$(build_run_command "review lint" "${COMPONENT}" "${WORKSPACE}")" \
   "review lint keeps path with changed-since"
 
+assert_equals \
+  "homeboy review lint data-machine --fix --path /tmp/workspace --changed-since origin/main" \
+  "$(build_run_command "review lint --fix" "${COMPONENT}" "${WORKSPACE}")" \
+  "review lint --fix is the lint autofix path and stays changed-scoped"
+
 GITHUB_ACTIONS="true"
 HOMEBOY_ACTION_PLACEMENT_MODE="global"
 assert_equals \
