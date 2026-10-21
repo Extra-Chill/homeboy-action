@@ -482,10 +482,6 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
   candidate:
-    env:
-      # Callers select e.g. a PR profile with a default-filter; unset means
-      # nextest's built-in default profile. Shard steps still pin ci.
-      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     name: Candidate ${{ matrix.title }}
     needs: [binary, plan]
     if: ${{ !inputs.contract-probe && !cancelled() && needs.binary.result == 'success' && needs.plan.outputs.non-test-commands-enabled == 'true' }}
@@ -494,6 +490,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      # Callers select e.g. a PR profile with a default-filter; unset means
+      # nextest's built-in default profile. Shard steps still pin ci.
+      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -612,10 +612,6 @@ jobs:
         run: exit 1
 
   baseline:
-    env:
-      # Callers select e.g. a PR profile with a default-filter; unset means
-      # nextest's built-in default profile. Shard steps still pin ci.
-      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     name: Baseline ${{ matrix.title }}
     needs: [binary, plan, candidate]
     if: ${{ !inputs.contract-probe && !cancelled() && needs.binary.result == 'success' && needs.plan.outputs.non-test-commands-enabled == 'true' && github.event_name == 'pull_request' && inputs.differential-gating == 'true' }}
@@ -624,6 +620,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      # Callers select e.g. a PR profile with a default-filter; unset means
+      # nextest's built-in default profile. Shard steps still pin ci.
+      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1184,10 +1184,6 @@ jobs:
         run: RESULTS="$(cat candidate-test-results/homeboy-ci-results/results.json)" COMMANDS="${COMMAND}" OPERATIONS_RESULTS='' PR_ACTIVE='' bash .homeboy-action/scripts/core/enforce-final-status.sh
 
   reconcile:
-    env:
-      # Callers select e.g. a PR profile with a default-filter; unset means
-      # nextest's built-in default profile. Shard steps still pin ci.
-      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     # This is the sole verdict and retains the established required-check name.
     name: ${{ matrix.title }}
     needs: [candidate, baseline, plan]
@@ -1196,6 +1192,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      # Callers select e.g. a PR profile with a default-filter; unset means
+      # nextest's built-in default profile. Shard steps still pin ci.
+      NEXTEST_PROFILE: ${{ inputs.nextest-profile || 'default' }}
     steps:
       - uses: actions/checkout@v6
         with:
