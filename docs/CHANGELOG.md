@@ -2,6 +2,22 @@
 
 All notable changes to Homeboy Action will be documented in this file.
 
+## [2.25.4] - 2026-11-01
+
+### Fixed
+- keep a missing servers/ dir quiet when listing config-dir ids
+- list config projects without GNU find -printf
+
+## [2.25.3] - 2026-11-01
+
+### Fixed
+- bind test inventories to subdirectory components
+
+## [2.25.2] - 2026-11-01
+
+### Fixed
+- inherit caller permissions in release.yml so npm trusted publishing gets id-token
+
 ## [2.25.1] - 2026-11-01
 
 ### Changed
