@@ -2,6 +2,11 @@
 
 All notable changes to Homeboy Action will be documented in this file.
 
+## [2.28.1] - 2026-11-28
+
+### Fixed
+- preserve extension setup timeout diagnostics
+
 ## [2.28.0] - 2026-11-23
 
 ### Added
